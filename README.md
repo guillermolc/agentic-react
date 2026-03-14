@@ -1,8 +1,8 @@
-# Web-Spec
+# agentic-react
 
-**Web-Spec** bridges the gap between business users and AI-powered software development. By wrapping GitHub Copilot's agentic capabilities in a clean, intuitive interface, it empowers product managers, business analysts, and stakeholders to actively participate in the Software Development Lifecycle — no IDE or CLI required.
+**agentic-react** bridges the gap between business users and AI-powered software development. By wrapping GitHub Copilot's agentic capabilities in a clean, intuitive interface, it empowers product managers, business analysts, and stakeholders to actively participate in the Software Development Lifecycle — no IDE or CLI required.
 
-Simply point it at any GitHub repository, describe what you need, and a chained pipeline of AI agents does the heavy lifting:
+Simply point it at any GitHub or Bitbucket repository, describe what you need, and a chained pipeline of AI agents does the heavy lifting:
 
 - 🔍 **Deep Research** — understands the existing codebase.
 - 📋 **PRD Writer** — translates ideas into product requirements.
@@ -14,31 +14,17 @@ Each agent hands off its output to the next, streaming results in real time. The
 
 ## Table of Contents
 
-- [Web-Spec](#web-spec)
-  - [Table of Contents](#table-of-contents)
+- [agentic-react](#agentic-react)
   - [Features](#features)
   - [Architecture](#architecture)
   - [Technology Stack](#technology-stack)
   - [Getting Started](#getting-started)
-    - [Prerequisites](#prerequisites)
-      - [PAT Permissions](#pat-permissions)
-    - [Install](#install)
-    - [Run](#run)
-    - [First-Time Setup](#first-time-setup)
   - [Project Structure](#project-structure)
   - [Agents](#agents)
-    - [Agent Pipeline](#agent-pipeline)
-    - [Agent Details](#agent-details)
   - [API Reference](#api-reference)
   - [Environment Variables](#environment-variables)
   - [Development](#development)
-    - [Hot Reload](#hot-reload)
-    - [Root Scripts](#root-scripts)
-    - [Adding an Agent](#adding-an-agent)
   - [Testing](#testing)
-    - [Type Checking](#type-checking)
-    - [Linting](#linting)
-    - [Manual Testing](#manual-testing)
   - [Contributing](#contributing)
   - [License](#license)
 
@@ -47,21 +33,21 @@ Each agent hands off its output to the next, streaming results in real time. The
 ## Features
 
 - **6 AI agents** — Deep Research → PRD Writer → Technical Docs form the analysis pipeline, with Spec Writer, PRD Repo Writer, and Issue Creator as action agents
-- **3 action agents** — Spec Writer creates spec branches/PRs, PRD Writer creates PRD docs on repo, Issue Creator creates GitHub issues — all triggered from post-action buttons
-- **Repository targeting** — search any GitHub repository; it is cloned automatically and all agents run directly inside it
-- **Streaming chat** — real-time server-sent event (SSE) streaming powered by the GitHub Copilot SDK
-- **Agent handoff** — forward the output of one agent as context to the next with a single click
+- **3 action agents** — Spec Writer creates spec branches/PRs, PRD Repo Writer creates PRD docs on repo, Issue Creator creates GitHub issues — all triggered from post-action buttons
+- **Repository targeting** — search and clone any GitHub or Bitbucket Server repository; agents run directly inside the cloned repo
+- **Streaming chat** — real-time SSE streaming powered by the GitHub Copilot SDK and Google Vertex AI
+- **Agent handoff** — forward one agent's output as context to the next with a single click
 - **Knowledge Base (KDB)** — attach Copilot Spaces or external KDB-Vector-Grafo instances to inject reference context into agent sessions
-- **WorkIQ integration** — search Microsoft 365 data (emails, meetings, documents, Teams) and attach results as context to agent sessions
+- **Atlassian integration** — search Jira issues and Confluence pages, download them as Markdown context documents, auto-inject into agent sessions
+- **WorkIQ integration** — search Microsoft 365 data (emails, meetings, documents, Teams) and attach results as context
+- **Parallel context gathering** — all context sources (handoff, Copilot Spaces, WorkIQ, KDB, Atlassian) are fetched concurrently via `Promise.allSettled` — a single source failure never aborts a run
+- **Multi-provider LLM** — choose between GitHub Copilot and Google Vertex AI (Gemini) at runtime via the model selector
 - **Dashboard** — session history and activity log persisted in `localStorage`; per-session and bulk delete
-- **Admin panel** — view and edit agent YAML configurations (model, tools, prompt) from the browser at `/admin`
-- **Feature flags** — toggle visibility of KDB, WorkIQ, and action buttons from the `/settings` page; flags stored in `localStorage`
+- **Admin panel** — create, view, and edit agents (model, tools, prompt) at runtime from `/admin/agents` — backed by SQLite
+- **Feature flags** — toggle visibility of KDB, WorkIQ, Atlassian, and action buttons from `/settings`
 - **Quick prompts** — one-click prompt buttons on PRD and Technical Docs agents to auto-fill context-based prompts
-- **Multi-provider LLM** — choose between GitHub Copilot and Google Vertex AI (Gemini) at runtime via a model selector in the chat input
-- **Bitbucket Server support** — clone and search repositories from Bitbucket Server in addition to GitHub, with PAT-based auth and self-signed SSL support
-- **Atlassian integration** — search Jira issues and Confluence pages, download them as context documents, and auto-inject into agent sessions alongside existing context sources
-- **Parallel context gathering** — all context sources (handoff, Copilot Spaces, WorkIQ, KDB, Atlassian) are fetched concurrently via `Promise.allSettled` — a single source failure never aborts an agent run
-- **Server-side auth** — LLM credentials (GitHub PAT, Vertex service account) are configured as backend environment variables — no secrets stored in the browser
+- **Bitbucket Server support** — clone and search Bitbucket Server repositories with PAT-based auth and self-signed SSL support
+- **Server-side auth** — all LLM and integration credentials live in `backend/.env` — no secrets stored in the browser
 
 ---
 
@@ -69,38 +55,41 @@ Each agent hands off its output to the next, streaming results in real time. The
 
 ```mermaid
 flowchart TD
-    Browser["Next.js Frontend · :3000"]
-    Backend["Express Backend · :3001"]
+    Browser["🖥 Next.js Frontend\nlocalhost:3000"]
+    Backend["⚙️ Express Backend\nlocalhost:3001"]
     SDK["@github/copilot-sdk"]
-    WorkIQ["WorkIQ MCP · M365 Data"]
-    GitHubAPI["GitHub API"]
-    Repos[("~/work/user/repo")]
+    Vertex["☁️ Google Vertex AI\n(Gemini)"]
+    GitHub["☁️ GitHub API\n+ Copilot Spaces"]
+    Bitbucket["🏢 Bitbucket Server\n(on-prem)"]
+    Atlassian["🏢 Jira / Confluence\n(on-prem)"]
+    WorkIQ["💼 WorkIQ MCP\n(M365: email · meetings · docs)"]
+    Disk[("💾 ~/work/user/repo\nCloned repositories")]
+    DB[("🗄 SQLite\nagents.db")]
 
-    Browser -- "HTTP / SSE" --> Backend
-    Backend -- "Agent sessions" --> SDK
-    SDK -- "MCP" --> WorkIQ
-    Backend -- "GitHub API (gh CLI)" --> GitHubAPI
-    Backend -- "git clone" --> Repos
+    Browser -- "REST + SSE" --> Backend
+    Backend -- "Copilot SDK sessions" --> SDK
+    SDK -- "tool execution\ngrep / glob / bash" --> Disk
+    Backend -- "Gemini API streaming" --> Vertex
+    Backend -- "git clone / gh CLI" --> GitHub
+    Backend -- "git clone + PAT" --> Bitbucket
+    Backend -- "search + download" --> Atlassian
+    Backend -- "MCP proxy" --> WorkIQ
+    Backend -- "agent CRUD" --> DB
+    SDK --> GitHub
 ```
 
-| Layer | Routes / Responsibilities |
+| Layer | Responsibilities |
 |---|---|
-| **Frontend** | `/` Agent selector, `/agents/[slug]` Streaming chat, `/dashboard` Session history, `/kdb` Copilot Spaces, `/settings` Feature flags, `/admin` Agent config editor. Global state via `AppProvider` (React Context) + `localStorage`. |
-| **Backend** | `POST /api/repos/clone` — clones via `gh` (GitHub) or `git` (Bitbucket Server), `POST /api/agent/run` — routes to Copilot SDK or Vertex AI and streams SSE tokens, `GET /api/providers/models` — lists available models per provider, `/api/atlassian/*` — Jira/Confluence search, download, and document management. |
-| **Copilot SDK** | Agent sessions use `@github/copilot-sdk` to run model inference with tool permissions (grep, glob, bash, etc.) defined in YAML configs. |
-| **WorkIQ** | `POST /api/workiq/search` — proxies Microsoft 365 queries (emails, meetings, docs, Teams) via the WorkIQ MCP CLI and attaches results as agent context. |
+| **Frontend** | `/` Agent selector · `/agents/[slug]` Streaming chat · `/dashboard` Session history · `/kdb` Knowledge Base · `/settings` Feature flags · `/admin/agents` Agent CRUD editor. Global state via `AppProvider` (React Context) + `localStorage`. |
+| **Backend** | REST + SSE API. Clones repos via `gh` (GitHub) or `git` (Bitbucket). Routes agent runs to Copilot SDK or Vertex AI. Proxies Atlassian, WorkIQ, and KDB requests. Manages agent configs in SQLite. |
+| **Copilot SDK** | Agent sessions via `@github/copilot-sdk` with tool permissions (grep, glob, view, bash) defined per agent in the database. |
+| **Vertex AI** | Gemini models via `@google/genai` — same SSE streaming interface as Copilot, selectable at runtime. |
+| **Atlassian** | Jira issue + Confluence page search; pages are converted to Markdown via Turndown and stored as context documents on disk. |
+| **WorkIQ** | M365 queries (emails, meetings, docs, Teams) proxied via the WorkIQ MCP CLI and injected as agent context. |
 
-The **frontend** manages UI, routing, and all client-side state via React context and `localStorage`. It sends repository clone requests and agent run requests to the backend over HTTP.
+The backend is **stateless** except for `agents.db` (agent configs only). All user-facing state lives in `localStorage` on the client.
 
-The **backend** handles repository operations via the GitHub CLI (`gh`) and spawns agent sessions using the `@github/copilot-sdk`. Agent responses are streamed back to the browser as Server-Sent Events (SSE), enabling token-by-token rendering in the chat interface.
-
-The **Copilot SDK** (`@github/copilot-sdk`) powers all agent interactions. Each agent session is configured via a YAML file that specifies the model, system prompt, and tool permissions. The SDK manages the agentic loop — sending prompts, executing tool calls, and streaming token responses back through SSE.
-
-**WorkIQ** integration enables agents to incorporate Microsoft 365 context. Users can search emails, meetings, documents, and Teams messages via the WorkIQ MCP CLI, then attach selected results as additional context for any agent session.
-
-Agent configurations are stored as YAML files in `backend/agents/` and describe the model, system prompt, and tool permissions for each agent.
-
-For detailed Mermaid diagrams covering the system overview, agent run sequence, and agent pipeline, see [ARCHITECTURE.md](ARCHITECTURE.md).
+For detailed sequence diagrams see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
@@ -108,19 +97,21 @@ For detailed Mermaid diagrams covering the system overview, agent run sequence, 
 
 | Layer | Technology |
 |---|---|
-| **Frontend framework** | Next.js 14.2.29 |
+| **Frontend framework** | Next.js 16 (App Router, Turbopack) |
 | **UI language** | React 18, TypeScript 5 |
 | **Styling** | Tailwind CSS 3.4 |
-| **Icons** | Lucide React 0.462 |
+| **Icons** | Lucide React ^0.462 |
 | **Markdown rendering** | react-markdown ^10.1, remark-gfm ^4.0 |
-| **Linting** | ESLint |
-| **Backend runtime** | Node.js 18+ (ESM) |
+| **Linting** | ESLint (via Next.js) |
+| **Backend runtime** | Node.js 18+ (ESM — `"type": "module"`) |
 | **Backend framework** | Express 4.21 |
 | **Backend language** | TypeScript 5 (ES2022, NodeNext) |
 | **AI SDK (Copilot)** | @github/copilot-sdk ^0.1.25 |
-| **AI SDK (Vertex)** | @google/genai ^1 |
+| **AI SDK (Vertex)** | @google/genai ^1.45 |
 | **MCP client** | @modelcontextprotocol/sdk ^1.27 |
-| **Agent config** | YAML 2.8 |
+| **Database** | better-sqlite3 ^12.8 (SQLite — agent configs) |
+| **HTML → Markdown** | turndown ^7.2 + cheerio ^1.2 (Atlassian doc conversion) |
+| **Agent config** | YAML ^2.8 (seed files only) |
 | **Dev tooling** | nodemon, tsx, concurrently ^9 |
 | **Monorepo** | npm workspaces |
 
@@ -188,9 +179,10 @@ Then open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ### First-Time Setup
 
-1. Configure at least one LLM provider in `backend/.env` (see [Environment Variables](#environment-variables)).
+1. Copy `backend/.env.example` to `backend/.env` and configure at least one LLM provider (see [Environment Variables](#environment-variables)).
 2. Click **Select repo** in the repository bar, search for a GitHub repository, and select it — it will be cloned automatically to `~/work/{owner}/{repo}`.
 3. Choose an agent from the landing page, pick a provider/model from the model selector, and start chatting.
+4. *(Optional)* Configure Atlassian and/or WorkIQ credentials to unlock additional context sources.
 
 ---
 
@@ -198,120 +190,132 @@ Then open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ```
 agentic-react/
-├── package.json                    # npm workspaces root (concurrently dev script)
+├── package.json                    # npm workspaces root
 ├── README.md
-├── frontend/                       # Next.js application (port 3000)
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── tailwind.config.ts
-│   ├── next.config.mjs
+├── ARCHITECTURE.md
+├── frontend/                       # Next.js 16 application (port 3000)
 │   ├── app/
-│   │   ├── layout.tsx              # Root layout — wraps Nav + RepoBar
+│   │   ├── layout.tsx              # Root layout — Nav + RepoBar
 │   │   ├── page.tsx                # Agent selector landing page
 │   │   ├── globals.css
 │   │   ├── api/
-│   │   │   ├── agent/
-│   │   │   │   └── run/
-│   │   │   │       └── route.ts    # SSE proxy to backend /api/agent/run
-│   │   │   └── backend/
-│   │   │       └── workiq/
-│   │   │           └── search/
-│   │   │               └── route.ts # Proxy to backend /api/workiq/search
-│   │   ├── agents/
-│   │   │   └── [slug]/
-│   │   │       └── page.tsx        # Dynamic agent chat page
-│   │   ├── dashboard/
-│   │   │   └── page.tsx            # Session history and activity log
-│   │   ├── kdb/
-│   │   │   └── page.tsx            # Knowledge Base / Copilot Spaces
-│   │   ├── settings/
-│   │   │   └── page.tsx            # Feature flags toggle panel
-│   │   └── admin/
-│   │       └── page.tsx            # Agent YAML config editor
+│   │   │   ├── agent/run/route.ts  # SSE proxy → backend /api/agent/run
+│   │   │   └── backend/workiq/search/route.ts  # WorkIQ proxy (90 s timeout)
+│   │   ├── agents/[slug]/page.tsx  # Dynamic agent chat page
+│   │   ├── admin/
+│   │   │   ├── page.tsx            # Admin landing
+│   │   │   └── agents/page.tsx     # Agent CRUD UI
+│   │   ├── dashboard/page.tsx      # Session history + activity log
+│   │   ├── kdb/page.tsx            # Knowledge Base / Copilot Spaces
+│   │   └── settings/page.tsx       # Feature flags toggle panel
 │   ├── components/
-│   │   ├── ChatInterface.tsx       # Streaming chat UI component
+│   │   ├── ChatInterface.tsx       # Streaming chat UI
 │   │   ├── Nav.tsx                 # Top navigation bar
 │   │   ├── RepoBar.tsx             # Active repository status bar
-│   │   ├── ModelSelector.tsx        # LLM provider and model picker
+│   │   ├── ModelSelector.tsx       # LLM provider and model picker
 │   │   ├── RepoSelectorModal.tsx   # Repository search and clone modal
 │   │   ├── ActionPanel.tsx         # Streaming action agent modal
+│   │   ├── AgentForm.tsx           # Agent create/edit form (Admin)
 │   │   ├── SpaceSelector.tsx       # Multi-select Copilot Spaces
+│   │   ├── KDBSelector.tsx         # External KDB selector
+│   │   ├── AtlassianSelector.tsx   # Jira/Confluence context selector
 │   │   ├── WorkIQModal.tsx         # WorkIQ search & context picker
 │   │   ├── WorkIQContextChips.tsx  # Attached WorkIQ context display
 │   │   └── SettingsDropdown.tsx    # User settings menu
 │   └── lib/
-│       ├── agents.ts               # Agent definitions and chain order
-│       ├── storage.ts              # localStorage read/write helpers
+│       ├── agents.ts               # AgentConfig type + helpers
+│       ├── agents-api.ts           # REST client for /api/agents
+│       ├── storage.ts              # localStorage helpers (SSR-safe)
 │       ├── context.tsx             # AppProvider — global React context
-│       ├── repo-cache.ts           # Repository data caching
+│       ├── repo-cache.ts           # Repository search cache
 │       ├── spaces-cache.ts         # Copilot Spaces cache (5-min TTL)
+│       ├── kdb-cache.ts            # External KDB list cache
 │       └── workiq.ts               # WorkIQ availability checker
 ├── backend/                        # Express API server (port 3001)
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── agents/
+│   ├── agents/                     # YAML seed files (first-run only)
 │   │   ├── deep-research.agent.yaml
 │   │   ├── prd.agent.yaml
 │   │   ├── technical-docs.agent.yaml
 │   │   ├── spec-writer.agent.yaml
 │   │   ├── prd-writer.agent.yaml
 │   │   └── issue-creator.agent.yaml
+│   ├── data/                       # SQLite database (git-ignored at runtime)
 │   └── src/
-│       ├── index.ts                # Server entry point
+│       ├── index.ts                # Server entry — registers all routers
 │       ├── lib/
-│       │   ├── db.ts               # SQLite database setup and Agent type
-│       │   ├── providers.ts        # LLM provider credential reader (env-based)
-│       │   ├── copilot-runner.ts   # Copilot SDK agent execution
-│       │   ├── vertex-runner.ts    # Vertex AI (Gemini) agent execution
-│       │   ├── seed.ts             # Seed agents from YAML on first run
-│       │   └── workiq-client.ts    # WorkIQ MCP client singleton
+│       │   ├── db.ts               # SQLite setup (agents + external_kdbs)
+│       │   ├── providers.ts        # LLM provider credential reader
+│       │   ├── copilot-runner.ts   # GitHub Copilot SDK execution
+│       │   ├── vertex-runner.ts    # Google Vertex AI (Gemini) execution
+│       │   ├── context-gatherer.ts # Parallel context aggregation
+│       │   ├── kdb-query.ts        # External KDB vector query helper
+│       │   ├── seed.ts             # Seeds agents from YAML on first run
+│       │   ├── workiq-client.ts    # WorkIQ MCP client singleton
+│       │   └── atlassian/
+│       │       ├── atlassian-client.ts   # Jira + Confluence API client
+│       │       ├── confluence-parser.ts  # Confluence HTML → Markdown
+│       │       └── document-store.ts     # Downloaded document file store
 │       └── routes/
-│           ├── repos.ts            # Repository clone, search, status, tree endpoints
-│           ├── agent.ts            # Agent runner + SSE streaming (provider routing)
-│           ├── providers.ts        # Available models per provider endpoint
-│           ├── agents.ts           # Full CRUD REST API for agents (/api/agents)
-│           ├── kdb.ts              # KDB spaces proxy endpoint
-│           ├── workiq.ts           # WorkIQ MCP proxy endpoints
-│           └── admin.ts            # Legacy admin endpoints (delegates to DB)
-└── reference/                      # Reference materials
+│           ├── repos.ts            # clone · status · remove · tree · search · me
+│           ├── agent.ts            # POST /run — SSE streaming (provider routing)
+│           ├── agents.ts           # CRUD /api/agents
+│           ├── providers.ts        # GET /models
+│           ├── kdb.ts              # GET /spaces (Copilot Spaces proxy)
+│           ├── kdb-external.ts     # CRUD /api/kdb/external
+│           ├── atlassian.ts        # GET /status · POST /search
+│           ├── atlassian-download.ts # POST /download · GET+DELETE /documents
+│           ├── workiq.ts           # POST /search · GET /status
+│           └── admin.ts            # Legacy agent endpoints (delegates to DB)
+└── reference/                      # Reference materials and sample data
 ```
 
 ---
 
 ## Agents
 
-Agents are stored in a SQLite database (`backend/data/agents.db`). On first startup, the backend seeds the database from the YAML files in `backend/agents/`. After seeding, the database is the single source of truth. Agents can be managed at runtime via the REST API or the Admin UI at `/admin/agents`.
+Agents are stored in a **SQLite database** (`backend/data/agents.db`). On first startup, the backend seeds the database from the YAML files in `backend/agents/`. After seeding, the database is the single source of truth — YAML files are not read at runtime.
+
+Agents can be managed via:
+- **Admin UI** at `/admin/agents` — full CRUD with a visual form
+- **REST API** — `GET/POST/PUT/DELETE /api/agents`
 
 ### Agent Pipeline
 
 ```mermaid
 flowchart LR
-    DR["Deep Research"] -->|hand-off| PRD["PRD Writer"]
-    PRD -->|hand-off| TD["Technical Docs"]
-    TD -->|action| SW["Spec Writer"]
-    TD -->|action| PW["PRD Repo Writer"]
-    TD -->|action| IC["Issue Creator"]
+    DR["🔍 Deep Research"]
+    PRD["📋 PRD Writer"]
+    TD["📐 Technical Docs"]
+    SW["⚡ Spec Writer"]
+    PW["📄 PRD Repo Writer"]
+    IC["🐛 Issue Creator"]
 
-    style DR fill:#2d333b,stroke:#539bf5
-    style PRD fill:#2d333b,stroke:#539bf5
-    style TD fill:#2d333b,stroke:#539bf5
-    style SW fill:#2d333b,stroke:#f47067
-    style PW fill:#2d333b,stroke:#f47067
-    style IC fill:#2d333b,stroke:#f47067
+    DR -->|hand-off| PRD
+    PRD -->|hand-off| TD
+    TD -->|action| SW
+    TD -->|action| PW
+    TD -->|action| IC
+
+    style DR fill:#2d333b,stroke:#539bf5,color:#cdd9e5
+    style PRD fill:#2d333b,stroke:#539bf5,color:#cdd9e5
+    style TD fill:#2d333b,stroke:#539bf5,color:#cdd9e5
+    style SW fill:#2d333b,stroke:#f47067,color:#cdd9e5
+    style PW fill:#2d333b,stroke:#f47067,color:#cdd9e5
+    style IC fill:#2d333b,stroke:#f47067,color:#cdd9e5
 ```
 
-The three action agents (Spec Writer, PRD Writer, Issue Creator) are triggered from post-action buttons on the Technical Docs chat page. They receive the tech-docs output as context and execute write operations against the repository.
+The three **action agents** (Spec Writer, PRD Repo Writer, Issue Creator) are triggered from buttons on the Technical Docs chat page. They receive the tech-docs output as context and execute write operations against the target repository.
 
 ### Agent Details
 
-| Agent | Slug | Model | Tools | Description |
+| Agent | Slug | Default Model | Tools | Description |
 |---|---|---|---|---|
-| **Deep Research** | `deep-research` | o4-mini | grep, glob, view, bash | Analyzes codebase structure, technology constraints, patterns, and dependencies to produce a research report |
+| **Deep Research** | `deep-research` | o4-mini | grep, glob, view, bash | Analyzes codebase structure, technology constraints, patterns, and dependencies |
 | **PRD Writer** | `prd` | o4-mini | grep, glob, view | Consumes research output and generates a structured Product Requirements Document |
-| **Technical Docs** | `technical-docs` | o4-mini | grep, glob, view, bash | Produces implementation task breakdowns and technical specifications based on the PRD |
-| **Spec Writer** | `spec-writer` | gpt-4.1 | bash | Action agent: creates a spec branch with spec.md and story files, commits, and opens a PR |
-| **PRD Writer (Repo)** | `prd-writer` | gpt-4.1 | bash | Action agent: creates a PRD markdown file on a branch and opens a PR |
-| **Issue Creator** | `issue-creator` | gpt-4.1 | bash | Action agent: creates hierarchical GitHub issues (parent + sub-issues) via `gh` CLI |
+| **Technical Docs** | `technical-docs` | o4-mini | grep, glob, view, bash | Produces implementation task breakdowns and technical specifications |
+| **Spec Writer** | `spec-writer` | gpt-4.1 | bash | Creates a spec branch with `spec.md` + story files, commits, and opens a PR |
+| **PRD Repo Writer** | `prd-writer` | gpt-4.1 | bash | Creates a PRD markdown file on a branch and opens a PR |
+| **Issue Creator** | `issue-creator` | gpt-4.1 | bash | Creates hierarchical GitHub issues (parent + sub-issues) via `gh` CLI |
 
 ---
 
@@ -319,20 +323,29 @@ The three action agents (Spec Writer, PRD Writer, Issue Creator) are triggered f
 
 All API endpoints are served by the backend on port `3001`.
 
+### Repositories
+
 | Method | Endpoint | Description |
 |---|---|---|
 | `POST` | `/api/repos/clone` | Clone a repository into `~/work/{owner}/{repo}` |
 | `GET` | `/api/repos/status` | Check whether a repository has already been cloned |
-| `DELETE` | `/api/repos/remove` | Remove a cloned repository from the work directory |
+| `DELETE` | `/api/repos/remove` | Remove a cloned repository from disk |
 | `GET` | `/api/repos/tree` | Return the file tree of a cloned repository |
 | `GET` | `/api/repos/search?q=` | Search GitHub repositories (server-side PAT) |
 | `GET` | `/api/repos/me` | Get authenticated GitHub username from env PAT |
-| `POST` | `/api/agent/run` | Start an agent session and stream token output via SSE (accepts `provider` + `model`) |
+
+### Agent Execution
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/agent/run` | Start an agent session; streams SSE tokens (`chunk`, `reasoning`, `done`, `error`) |
 | `GET` | `/api/providers/models` | List available models grouped by configured provider |
-| `GET` | `/api/kdb/spaces` | Proxy endpoint to fetch GitHub Copilot Spaces (eliminates CORS errors) |
-| `POST` | `/api/workiq/search` | Search Microsoft 365 data via WorkIQ MCP |
-| `GET` | `/api/workiq/status` | Check if WorkIQ CLI is available |
-| `GET` | `/api/agents` | List all agents (DB-backed) |
+
+### Agent Management
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/agents` | List all agents |
 | `GET` | `/api/agents/:slug` | Get a single agent |
 | `POST` | `/api/agents` | Create a new agent |
 | `PUT` | `/api/agents/:slug` | Update an agent |
@@ -340,8 +353,39 @@ All API endpoints are served by the backend on port `3001`.
 | `GET` | `/api/admin/agents` | Legacy: list agents (delegates to DB) |
 | `GET` | `/api/admin/agents/:slug` | Legacy: get agent (delegates to DB) |
 | `PUT` | `/api/admin/agents/:slug` | Legacy: update agent (delegates to DB) |
-| `GET` | `/health` | Health check — returns `200 OK` |
-| `POST` | `/api/backend/workiq/search` | Frontend proxy route — forwards WorkIQ search requests to the backend (90 s timeout) |
+
+### Knowledge Base
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/kdb/spaces` | Proxy — fetch GitHub Copilot Spaces (avoids CORS) |
+| `GET` | `/api/kdb/external` | List saved external KDB instances |
+| `POST` | `/api/kdb/external` | Add an external KDB instance |
+| `DELETE` | `/api/kdb/external/:id` | Remove an external KDB instance |
+
+### Atlassian (Jira + Confluence)
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/atlassian/status` | Check if Atlassian credentials are configured |
+| `POST` | `/api/atlassian/search` | Search Jira issues and Confluence pages |
+| `POST` | `/api/atlassian/download` | Download a Confluence page as a Markdown context document |
+| `GET` | `/api/atlassian/documents` | List downloaded Atlassian documents |
+| `DELETE` | `/api/atlassian/documents/:filename` | Delete a downloaded document |
+
+### WorkIQ (Microsoft 365)
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/workiq/search` | Search M365 data via WorkIQ MCP CLI |
+| `GET` | `/api/workiq/status` | Check if WorkIQ CLI is available |
+
+### Other
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/health` | Health check — returns `{ status: "ok" }` |
+| `POST` | `/api/backend/workiq/search` | Next.js proxy route — forwards WorkIQ search (90 s timeout) |
 
 ---
 
@@ -372,8 +416,8 @@ At least one LLM provider (`GITHUB_PAT` or `VERTEX_SERVICE_ACCOUNT_B64`) must be
 
 ### Hot Reload
 
-- **Frontend** — Next.js provides fast refresh out of the box. Any change to a component or page is reflected immediately in the browser without a full reload.
-- **Backend** — `nodemon` watches for file changes and `tsx` handles TypeScript compilation on the fly. The server restarts automatically on any `.ts` file change in `src/`.
+- **Frontend** — Next.js 16 with Turbopack; near-instant HMR.
+- **Backend** — `nodemon` + `tsx`; server restarts automatically on `.ts` file changes.
 
 ### Root Scripts
 
@@ -381,29 +425,28 @@ At least one LLM provider (`GITHUB_PAT` or `VERTEX_SERVICE_ACCOUNT_B64`) must be
 |---|---|
 | `npm run dev` | Start both frontend and backend concurrently |
 | `npm run build` | Build the frontend for production |
+| `npm run build --workspace=backend` | Compile backend TypeScript → `dist/` |
 | `npm run install:all` | Install dependencies for all workspaces |
 
 ### Adding an Agent
 
-Agents can now be added at runtime through the Admin UI at `/admin/agents` or via the REST API:
+Agents can now be added at runtime through the **Admin UI** at `/admin/agents` or via the REST API:
 
 ```bash
 curl -X POST http://localhost:3001/api/agents \
   -H 'Content-Type: application/json' \
-  -d '{"slug":"my-agent","name":"my-agent","displayName":"My Agent","prompt":"You are..."}'
+  -d '{"slug":"my-agent","name":"my-agent","displayName":"My Agent","prompt":"You are...","model":"gpt-4.1"}'
 ```
 
-Alternatively, add a YAML file to `backend/agents/` and delete `backend/data/agents.db` — the seed will recreate it on next startup.
+To add via YAML seed: add a `backend/agents/<slug>.agent.yaml` file and delete `backend/data/agents.db` — the seed will recreate it on next startup.
 
 ---
 
 ## Testing
 
-There are currently no automated test suites in this project. Verification is done through static analysis and manual end-to-end checks.
+There are no automated test suites. Verification uses static analysis and manual end-to-end checks.
 
 ### Type Checking
-
-Run the TypeScript compiler in no-emit mode against each package to catch type errors without producing build output:
 
 ```bash
 # Frontend
@@ -416,26 +459,25 @@ cd backend && npx tsc --noEmit
 ### Linting
 
 ```bash
-# Frontend (ESLint via Next.js)
 cd frontend && npm run lint
 ```
 
-### Manual Testing
-
-After starting the app with `npm run dev`, verify the following flows:
+### Manual Testing Flows
 
 | Flow | Steps |
 |---|---|
-| **Auth** | Configure `GITHUB_PAT` and/or `VERTEX_SERVICE_ACCOUNT_B64` in `backend/.env` → restart backend → confirm model selector shows available providers |
+| **Auth** | Set `GITHUB_PAT` in `backend/.env` → restart backend → confirm model selector shows Copilot provider |
 | **Repo clone** | Click **Select repo** → search for a public repo → select it → confirm it appears in the repo bar |
 | **Agent run** | Pick any agent → type a prompt → confirm streamed tokens appear in the chat |
-| **Agent handoff** | Complete a Deep Research session → click **Send to PRD Writer** → confirm context is prepopulated in the new session |
-| **KDB attach** | Navigate to `/kdb` → connect a Copilot Space → start an agent session and confirm the space context is included |
+| **Agent handoff** | Complete a Deep Research session → click **Send to PRD Writer** → confirm context is prepopulated |
+| **KDB / Copilot Spaces** | Navigate to `/kdb` → connect a Copilot Space → start a session → confirm context is included |
+| **External KDB** | Navigate to `/kdb` → add an external KDB URL → attach it to a session |
+| **Atlassian** | Configure `JIRA_URL`/`JIRA_PAT` → use AtlassianSelector in chat → search and attach a Jira issue |
+| **WorkIQ** | Click WorkIQ button in chat → search → attach a result → confirm context is included |
 | **Dashboard** | Navigate to `/dashboard` → confirm past sessions and activity events are listed |
-| **WorkIQ** | Click the WorkIQ button in chat → search → attach a result → send a message → confirm context is included |
-| **Admin** | Navigate to `/admin` → view agent list → edit an agent's prompt → save → confirm YAML file is updated |
+| **Admin** | Navigate to `/admin/agents` → edit an agent's prompt → save → re-run agent to confirm change |
 | **Feature flags** | Navigate to `/settings` → toggle a flag off → confirm the corresponding UI element is hidden |
-| **Action agents** | Complete a Technical Docs session → click "Create Docs on Repo" → confirm ActionPanel streams the spec-writer agent |
+| **Action agents** | Complete a Technical Docs session → click an action button → confirm ActionPanel streams output |
 
 ---
 
