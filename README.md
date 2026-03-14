@@ -197,7 +197,7 @@ Then open [http://localhost:3000](http://localhost:3000) in your browser.
 ## Project Structure
 
 ```
-agentic-web-spec/
+agentic-react/
 ├── package.json                    # npm workspaces root (concurrently dev script)
 ├── README.md
 ├── frontend/                       # Next.js application (port 3000)
