@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^cd /Users/guillermo/Desktop/agentic-web-spec-main/backend && npm install better-sqlite3 && npm install --save-dev @types/better-sqlite3$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}
