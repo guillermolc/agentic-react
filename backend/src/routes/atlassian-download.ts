@@ -45,7 +45,7 @@ atlassianDownloadRouter.post("/download", async (req: Request, res: Response) =>
         const url = `${getJiraUrl()}/rest/api/2/issue/${encodeURIComponent(key)}?fields=summary,description,comment,issuetype,status,created,updated`;
         const response = await fetch(url, {
           headers: getJiraHeaders(),
-          signal: AbortSignal.timeout(15_000),
+          signal: AbortSignal.timeout(30_000),
         });
         if (!response.ok) {
           console.warn(`[atlassian] Failed to fetch Jira issue ${key}: ${response.status}`);
@@ -88,7 +88,7 @@ atlassianDownloadRouter.post("/download", async (req: Request, res: Response) =>
         const url = `${getConfluenceUrl()}/rest/api/content/${pageId}?expand=body.view,body.storage,version`;
         const response = await fetch(url, {
           headers: getConfluenceHeaders(),
-          signal: AbortSignal.timeout(15_000),
+          signal: AbortSignal.timeout(30_000),
         });
         if (!response.ok) {
           console.warn(`[atlassian] Failed to fetch Confluence page ${pageId}: ${response.status}`);

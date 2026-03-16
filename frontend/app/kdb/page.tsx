@@ -7,6 +7,7 @@ import {
   getCachedSpaces,
   fetchSpacesWithCache,
 } from "@/lib/spaces-cache";
+import { useApp } from "@/lib/context";
 
 interface ExternalKdbRow {
   id: string;
@@ -19,7 +20,13 @@ interface ExternalKdbRow {
 }
 
 export default function KDBPage() {
-  const [activeTab, setActiveTab] = useState<"spaces" | "external">("spaces");
+  const { copilotConfigured } = useApp();
+  const [activeTab, setActiveTab] = useState<"spaces" | "external">("external");
+
+  // Switch to spaces tab if copilot becomes configured
+  useEffect(() => {
+    if (copilotConfigured) setActiveTab("spaces");
+  }, [copilotConfigured]);
 
   // --- Copilot Spaces state ---
   const [spaces, setSpaces] = useState<CopilotSpace[]>([]);
@@ -160,9 +167,11 @@ export default function KDBPage() {
 
       {/* Tab switcher */}
       <div className="flex gap-1 mb-6 p-1 bg-surface rounded-xl w-fit border border-border">
-        <button className={tabClass("spaces")} onClick={() => setActiveTab("spaces")}>
-          Copilot Spaces
-        </button>
+        {copilotConfigured && (
+          <button className={tabClass("spaces")} onClick={() => setActiveTab("spaces")}>
+            Copilot Spaces
+          </button>
+        )}
         <button className={tabClass("external")} onClick={() => setActiveTab("external")}>
           External KDBs
         </button>

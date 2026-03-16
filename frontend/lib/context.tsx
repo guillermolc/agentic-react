@@ -20,6 +20,7 @@ interface AppContextValue {
   activeRepo: ActiveRepo | null;
   featureFlags: FeatureFlags;
   agents: AgentRecord[];
+  copilotConfigured: boolean;
   clearAuth: () => void;
   setActiveRepo: (repo: ActiveRepo) => void;
   removeActiveRepo: () => void;
@@ -34,6 +35,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [featureFlags, setFeatureFlagsState] = useState<FeatureFlags>({ ...DEFAULT_FEATURE_FLAGS });
   const [hydrated, setHydrated] = useState(false);
   const [agents, setAgents] = useState<AgentRecord[]>([]);
+  const [copilotConfigured, setCopilotConfigured] = useState(false);
 
   async function refreshAgents() {
     try {
@@ -49,6 +51,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setFeatureFlagsState(getFeatureFlags());
     setHydrated(true);
     void refreshAgents();
+    // Check if copilot provider is configured
+    fetch("/api/backend/providers/models")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: { provider: string }[]) => {
+        setCopilotConfigured(data.some((p) => p.provider === "copilot"));
+      })
+      .catch(() => {});
   }, []);
 
   function clearAuth() {
@@ -80,6 +89,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         activeRepo,
         featureFlags,
         agents,
+        copilotConfigured,
         clearAuth,
         setActiveRepo,
         removeActiveRepo,

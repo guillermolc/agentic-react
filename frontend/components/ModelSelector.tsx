@@ -114,9 +114,9 @@ export function ModelSelector({ onSelectionChange, disabled }: ModelSelectorProp
 
   if (loading) {
     return (
-      <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-muted bg-surface-2 border border-border rounded-lg">
+      <div className="flex items-center gap-1.5 px-3 text-xs text-muted bg-surface-2 border border-border rounded-xl h-full">
         <Loader2 size={12} className="animate-spin" />
-        <span>Loading models…</span>
+        <span>Loading…</span>
       </div>
     );
   }
@@ -125,7 +125,7 @@ export function ModelSelector({ onSelectionChange, disabled }: ModelSelectorProp
     return (
       <button
         onClick={fetchModels}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg hover:bg-red-500/20 transition-colors"
+        className="flex items-center gap-1.5 px-3 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl hover:bg-red-500/20 transition-colors h-full"
       >
         <AlertCircle size={12} />
         Retry
@@ -135,9 +135,9 @@ export function ModelSelector({ onSelectionChange, disabled }: ModelSelectorProp
 
   if (providerModels.length === 0) {
     return (
-      <div className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+      <div className="flex items-center gap-1.5 px-3 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl h-full">
         <AlertCircle size={12} />
-        No LLM providers configured
+        No LLM providers
       </div>
     );
   }
@@ -152,7 +152,7 @@ export function ModelSelector({ onSelectionChange, disabled }: ModelSelectorProp
         type="button"
         onClick={() => !disabled && setOpen((v) => !v)}
         disabled={disabled}
-        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+        className={`flex items-center gap-1.5 px-3 text-xs rounded-xl border transition-colors h-full ${
           selectedModel
             ? "bg-surface-2 border-border text-text-primary hover:border-accent"
             : "bg-amber-500/10 border-amber-500/20 text-amber-400"
@@ -164,7 +164,7 @@ export function ModelSelector({ onSelectionChange, disabled }: ModelSelectorProp
       </button>
 
       {open && (
-        <div className="absolute bottom-full mb-1 left-0 bg-surface-2 border border-border rounded-lg shadow-lg z-50 min-w-[200px] py-1 max-h-[280px] overflow-y-auto">
+        <div className="absolute bottom-full mb-1 left-0 bg-surface-2 border border-border rounded-xl shadow-lg z-50 min-w-[200px] py-1 max-h-[280px] overflow-y-auto">
           {providerModels.map((pm) => (
             <div key={pm.provider}>
               <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted font-semibold">

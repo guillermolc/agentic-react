@@ -79,34 +79,31 @@ export function AtlassianSelector({ disabled }: AtlassianSelectorProps) {
     }
   }, [disabled, open, fetchStatus, fetchDocCount]);
 
-  // Debounced search
-  useEffect(() => {
-    if (!open || !query.trim() || !status) return;
+  // Trigger search explicitly (not auto)
+  const handleSearch = useCallback(async () => {
+    if (!query.trim() || !status) return;
 
     const configured = activeService === "jira" ? status.jira : status.confluence;
     if (!configured) return;
 
-    const timer = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const res = await fetch("/api/backend/atlassian/search", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: query.trim(), type: activeService }),
-        });
-        if (res.ok) {
-          setResults((await res.json()) as SearchResult[]);
-        } else {
-          setResults([]);
-        }
-      } catch {
+    setSearching(true);
+    try {
+      const res = await fetch("/api/backend/atlassian/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: query.trim(), type: activeService }),
+      });
+      if (res.ok) {
+        setResults((await res.json()) as SearchResult[]);
+      } else {
         setResults([]);
-      } finally {
-        setSearching(false);
       }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [query, activeService, open, status]);
+    } catch {
+      setResults([]);
+    } finally {
+      setSearching(false);
+    }
+  }, [query, activeService, status]);
 
   // Reset on service change
   useEffect(() => {
@@ -237,17 +234,29 @@ export function AtlassianSelector({ disabled }: AtlassianSelectorProps) {
 
               {/* Search */}
               <div className="px-3 py-2">
-                <div className="relative">
-                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
-                  <input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder={`Search ${activeService === "jira" ? "Jira issues" : "Confluence pages"}...`}
-                    className="w-full bg-background border border-border rounded-lg pl-8 pr-3 py-1.5 text-xs text-text-primary placeholder:text-muted focus:outline-none focus:border-accent transition-colors"
-                  />
-                  {searching && (
-                    <Loader2 size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 animate-spin text-muted" />
-                  )}
+                <div className="relative flex gap-1.5">
+                  <div className="relative flex-1">
+                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+                    <input
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
+                      placeholder={`Search ${activeService === "jira" ? "Jira issues" : "Confluence pages"}...`}
+                      className="w-full bg-background border border-border rounded-lg pl-8 pr-3 py-1.5 text-xs text-text-primary placeholder:text-muted focus:outline-none focus:border-accent transition-colors"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSearch}
+                    disabled={!query.trim() || searching}
+                    className="px-2.5 py-1.5 bg-accent/15 text-accent rounded-lg text-xs font-medium hover:bg-accent/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                  >
+                    {searching ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <Search size={12} />
+                    )}
+                  </button>
                 </div>
               </div>
 

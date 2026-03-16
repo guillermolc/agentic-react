@@ -9,6 +9,12 @@ import {
 
 export const atlassianRouter = Router();
 
+/** Escape special characters for JQL string literals */
+function escapeJql(value: string): string {
+  // Escape JQL reserved chars: \ " ' + - & | ! ( ) { } [ ] ^ ~ * ? :
+  return value.replace(/([\\"'+\-&|!(){}\[\]^~*?:])/g, "\\$1");
+}
+
 // GET /api/atlassian/status
 atlassianRouter.get("/status", (_req: Request, res: Response) => {
   res.json({
@@ -37,11 +43,12 @@ atlassianRouter.post("/search", async (req: Request, res: Response) => {
     }
 
     try {
-      const jql = `text ~ "${query}" OR summary ~ "${query}"`;
+      const safe = escapeJql(query);
+      const jql = `text ~ "${safe}" OR summary ~ "${safe}"`;
       const url = `${getJiraUrl()}/rest/api/2/search?jql=${encodeURIComponent(jql)}&maxResults=20`;
       const response = await fetch(url, {
         headers: getJiraHeaders(),
-        signal: AbortSignal.timeout(15_000),
+        signal: AbortSignal.timeout(30_000),
       });
       if (!response.ok) {
         res.status(502).json({ error: `Jira API returned ${response.status}` });
@@ -82,14 +89,15 @@ atlassianRouter.post("/search", async (req: Request, res: Response) => {
       const baseUrl = getConfluenceUrl();
       const headers = getConfluenceHeaders();
 
-      // Try CQL search first
-      const cql = `type=page AND (title~"${query}" OR text~"${query}")`;
+      // CQL search — avoid expand=body.view to prevent 502 on Confluence DC 9.x
+      const safeQuery = query.replace(/"/g, '\\"');
+      const cql = `type=page AND (title~"${safeQuery}" OR text~"${safeQuery}")`;
       let results: { id: string; title: string; summary: string; url: string; type: "confluence" }[] = [];
 
-      const cqlUrl = `${baseUrl}/rest/api/content/search?cql=${encodeURIComponent(cql)}&limit=20&expand=body.view`;
+      const cqlUrl = `${baseUrl}/rest/api/content/search?cql=${encodeURIComponent(cql)}&limit=20&expand=metadata.labels`;
       const cqlRes = await fetch(cqlUrl, {
         headers,
-        signal: AbortSignal.timeout(15_000),
+        signal: AbortSignal.timeout(30_000),
       });
 
       if (cqlRes.ok) {
@@ -97,15 +105,15 @@ atlassianRouter.post("/search", async (req: Request, res: Response) => {
           results: {
             id: string;
             title: string;
-            body?: { view?: { value?: string } };
+            excerpt?: string;
             _links?: { webui?: string };
           }[];
         };
         results = (data.results || []).map((page) => ({
           id: page.id,
           title: page.title,
-          summary: page.body?.view?.value
-            ? page.body.view.value.replace(/<[^>]*>/g, "").substring(0, 200)
+          summary: page.excerpt
+            ? page.excerpt.replace(/<[^>]*>/g, "").substring(0, 200)
             : "",
           url: page._links?.webui ? `${baseUrl}${page._links.webui}` : baseUrl,
           type: "confluence" as const,
@@ -114,25 +122,25 @@ atlassianRouter.post("/search", async (req: Request, res: Response) => {
 
       // Fallback to title-based search if CQL failed or returned empty
       if (!cqlRes.ok || results.length === 0) {
-        const fallbackUrl = `${baseUrl}/rest/api/content?title=${encodeURIComponent(query)}&limit=20&expand=body.view`;
+        const fallbackUrl = `${baseUrl}/rest/api/content?title=${encodeURIComponent(query)}&limit=20`;
         const fallbackRes = await fetch(fallbackUrl, {
           headers,
-          signal: AbortSignal.timeout(15_000),
+          signal: AbortSignal.timeout(30_000),
         });
         if (fallbackRes.ok) {
           const data = (await fallbackRes.json()) as {
             results: {
               id: string;
               title: string;
-              body?: { view?: { value?: string } };
+              excerpt?: string;
               _links?: { webui?: string };
             }[];
           };
           results = (data.results || []).map((page) => ({
             id: page.id,
             title: page.title,
-            summary: page.body?.view?.value
-              ? page.body.view.value.replace(/<[^>]*>/g, "").substring(0, 200)
+            summary: page.excerpt
+              ? page.excerpt.replace(/<[^>]*>/g, "").substring(0, 200)
               : "",
             url: page._links?.webui ? `${baseUrl}${page._links.webui}` : baseUrl,
             type: "confluence" as const,

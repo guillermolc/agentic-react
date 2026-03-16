@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { LayoutDashboard, MessageSquare, GitBranch, Search, FileText, Code, ArrowRight, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { getSessions, getActivity, Session, ActivityEvent, deleteSession, clearAllSessions } from "@/lib/storage";
+import { getSessions, getActivity, Session, ActivityEvent, deleteSession, clearAllSessions, clearAllActivity } from "@/lib/storage";
 import { getAgent } from "@/lib/agents";
 import { useApp } from "@/lib/context";
 
@@ -54,6 +54,19 @@ export default function DashboardPage() {
       <div className="flex items-center gap-3 mb-8">
         <LayoutDashboard size={22} className="text-accent" />
         <h1 className="text-2xl font-display font-bold text-text-primary">Sessions</h1>
+        {(sessions.length > 0 || activity.length > 0) && (
+          <button
+            onClick={() => {
+              clearAllSessions();
+              clearAllActivity();
+              setSessions([]);
+              setActivity([]);
+            }}
+            className="text-xs text-red-400/70 hover:text-red-400 transition-colors ml-auto"
+          >
+            Clear all data
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -160,9 +173,19 @@ export default function DashboardPage() {
 
         {/* Activity log — 1/3 width */}
         <div>
-          <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-4">
-            Activity
-          </h2>
+          <div className="flex items-center mb-4">
+            <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">
+              Activity
+            </h2>
+            {activity.length > 0 && (
+              <button
+                onClick={() => { clearAllActivity(); setActivity([]); }}
+                className="text-xs text-red-400/70 hover:text-red-400 transition-colors ml-auto"
+              >
+                Clear
+              </button>
+            )}
+          </div>
 
           {activity.length === 0 ? (
             <div className="border border-border rounded-xl bg-surface p-6 text-center">

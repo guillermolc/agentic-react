@@ -104,12 +104,8 @@ export function RepoSelectorModal({ onClose }: RepoSelectorModalProps) {
     setError("");
   }, [provider]);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (query) searchRepos(query);
-      else searchRepos("");
-    }, 400);
-    return () => clearTimeout(timer);
+  const handleSearchClick = useCallback(() => {
+    searchRepos(query || "");
   }, [query, searchRepos]);
 
   async function handleSelect(repo: GitHubRepo) {
@@ -191,18 +187,33 @@ export function RepoSelectorModal({ onClose }: RepoSelectorModalProps) {
 
         {/* Search */}
         <div className="p-4 border-b border-border flex-shrink-0">
-          <div className="relative">
-            <Search
-              size={15}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted"
-            />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search repositories..."
-              className="w-full bg-surface-2 border border-border rounded-lg pl-9 pr-3 py-2 text-sm text-text-primary placeholder:text-muted focus:outline-none focus:border-accent focus:shadow-glow-sm transition-colors"
-              autoFocus
-            />
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search
+                size={15}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+              />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleSearchClick(); }}
+                placeholder="Search repositories..."
+                className="w-full bg-surface-2 border border-border rounded-lg pl-9 pr-3 py-2 text-sm text-text-primary placeholder:text-muted focus:outline-none focus:border-accent focus:shadow-glow-sm transition-colors"
+                autoFocus
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleSearchClick}
+              disabled={loading}
+              className="px-4 py-2 bg-accent/15 text-accent rounded-lg text-sm font-medium hover:bg-accent/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+            >
+              {loading ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <Search size={16} />
+              )}
+            </button>
           </div>
         </div>
 

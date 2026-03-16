@@ -10,7 +10,11 @@ import os from "os";
 const MAX_CONTEXT_CHARS = 8000;
 
 function getBaseDir(): string {
-  const workDir = process.env.WORK_DIR || path.join(os.homedir(), "work");
+  let workDir = process.env.WORK_DIR || path.join(os.homedir(), "work");
+  // Expand ~ to home directory (Node.js doesn't do this automatically)
+  if (workDir.startsWith("~/")) {
+    workDir = path.join(os.homedir(), workDir.slice(2));
+  }
   return path.join(workDir, "context", "atlassian");
 }
 

@@ -148,7 +148,7 @@ export function ChatInterface({
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { featureFlags } = useApp();
+  const { featureFlags, copilotConfigured } = useApp();
 
   // Check WorkIQ availability on mount
   useEffect(() => {
@@ -352,7 +352,7 @@ export function ChatInterface({
               )}
             </button>
           )}
-          {featureFlags.kdb && (
+          {featureFlags.kdb && copilotConfigured && (
             <SpaceSelector
               onSelectionChange={setSelectedSpaces}
               disabled={disabled || isStreaming}
