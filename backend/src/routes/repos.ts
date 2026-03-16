@@ -14,7 +14,15 @@ function sanitizePAT(text: string, pat: string): string {
 
 import os from "os";
 
-const WORK_DIR = process.env.WORK_DIR || path.join(os.homedir(), "work");
+function resolveWorkDir(): string {
+  const raw = process.env.WORK_DIR?.trim();
+  if (!raw) return path.join(os.homedir(), "work");
+  if (raw.startsWith("~/")) return path.join(os.homedir(), raw.slice(2));
+  if (path.isAbsolute(raw)) return raw;
+  return path.resolve(raw);
+}
+
+const WORK_DIR = resolveWorkDir();
 
 function getRepoPath(username: string, repoName: string): string {
   return path.join(WORK_DIR, username, repoName);
