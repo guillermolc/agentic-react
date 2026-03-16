@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { LayoutDashboard, MessageSquare, GitBranch, Search, FileText, Code, ArrowRight, Trash2 } from "lucide-react";
+import { LayoutDashboard, MessageSquare, GitBranch, Search, FileText, Code, ArrowRight, Trash2, Download } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { getSessions, getActivity, Session, ActivityEvent, deleteSession, clearAllSessions, clearAllActivity } from "@/lib/storage";
+import { getSessions, getActivity, getSession, deleteSession, clearAllSessions, clearAllActivity, type Session, type ActivityEvent } from "@/lib/sessions-api";
 import { getAgent } from "@/lib/agents";
 import { useApp } from "@/lib/context";
+import { sessionToMarkdown, downloadMarkdown } from "@/lib/export";
 
 const AGENT_ICONS = {
   "deep-research": Search,
@@ -44,8 +45,11 @@ export default function DashboardPage() {
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
 
   useEffect(() => {
-    setSessions(getSessions());
-    setActivity(getActivity());
+    const load = async () => {
+      setSessions(await getSessions());
+      setActivity(await getActivity());
+    };
+    void load();
   }, []);
 
   return (
@@ -56,9 +60,9 @@ export default function DashboardPage() {
         <h1 className="text-2xl font-display font-bold text-text-primary">Sessions</h1>
         {(sessions.length > 0 || activity.length > 0) && (
           <button
-            onClick={() => {
-              clearAllSessions();
-              clearAllActivity();
+            onClick={async () => {
+              await clearAllSessions();
+              await clearAllActivity();
               setSessions([]);
               setActivity([]);
             }}
@@ -78,7 +82,7 @@ export default function DashboardPage() {
             </h2>
             {sessions.length > 0 && (
               <button
-                onClick={() => { clearAllSessions(); setSessions([]); }}
+                onClick={async () => { await clearAllSessions(); setSessions([]); }}
                 className="text-xs text-red-400/70 hover:text-red-400 transition-colors ml-auto"
               >
                 Clear all
@@ -148,15 +152,33 @@ export default function DashboardPage() {
                     {/* Message count */}
                     <div className="flex items-center gap-1 text-xs text-muted flex-shrink-0">
                       <MessageSquare size={11} />
-                      {session.messages.length}
+                      {session.messageCount ?? session.messages.length}
                     </div>
+
+                    {/* Download button */}
+                    <button
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const full = await getSession(session.id);
+                        if (!full) return;
+                        const agentName = getAgent(session.agentSlug, agentRecords)?.name ?? session.agentSlug;
+                        const repoName = session.repoFullName.split("/")[1] ?? session.repoFullName;
+                        const filename = `${session.agentSlug}-${repoName}-${new Date().toISOString().slice(0, 10)}.md`;
+                        downloadMarkdown(filename, sessionToMarkdown(full, agentName));
+                      }}
+                      aria-label="Download session as Markdown"
+                      className="text-text-secondary hover:text-accent transition-colors p-1 rounded flex-shrink-0"
+                    >
+                      <Download size={14} />
+                    </button>
 
                     {/* Delete button */}
                     <button
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        deleteSession(session.id);
+                        void deleteSession(session.id);
                         setSessions((prev) => prev.filter((s) => s.id !== session.id));
                       }}
                       className="text-muted hover:text-red-400 transition-colors p-1 rounded flex-shrink-0"
@@ -179,7 +201,7 @@ export default function DashboardPage() {
             </h2>
             {activity.length > 0 && (
               <button
-                onClick={() => { clearAllActivity(); setActivity([]); }}
+                onClick={async () => { await clearAllActivity(); setActivity([]); }}
                 className="text-xs text-red-400/70 hover:text-red-400 transition-colors ml-auto"
               >
                 Clear

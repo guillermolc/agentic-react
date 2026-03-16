@@ -8,6 +8,7 @@ export async function POST(request: Request) {
       headers: {
         "Content-Type": "application/json",
       },
+      signal: request.signal,
       body,
     });
   } catch (err) {

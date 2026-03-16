@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import fs from "fs";
 import {
   isAtlassianConfigured,
   getJiraUrl,
@@ -7,7 +8,7 @@ import {
   getConfluenceHeaders,
 } from "../lib/atlassian/atlassian-client.js";
 import { extractBody, parseConfluenceHtml } from "../lib/atlassian/confluence-parser.js";
-import { saveDocument, listDocuments, deleteDocument } from "../lib/atlassian/document-store.js";
+import { saveDocument, listDocuments, deleteDocument, getDocumentPath } from "../lib/atlassian/document-store.js";
 
 export const atlassianDownloadRouter = Router();
 
@@ -144,4 +145,23 @@ atlassianDownloadRouter.delete("/documents/:filename", (req: Request, res: Respo
   }
 
   res.json({ deleted: true, filename });
+});
+
+// GET /api/atlassian/documents/:filename/content
+atlassianDownloadRouter.get("/documents/:filename/content", (req: Request, res: Response) => {
+  const filename = String(req.params.filename);
+
+  // Path traversal protection
+  if (!filename || filename.includes("/") || filename.includes("\\") || filename.includes("..")) {
+    res.status(400).json({ error: "Invalid filename" });
+    return;
+  }
+
+  const filePath = getDocumentPath(filename);
+  try {
+    const content = fs.readFileSync(filePath, "utf-8");
+    res.json({ filename, content });
+  } catch {
+    res.status(404).json({ error: "Document not found" });
+  }
 });

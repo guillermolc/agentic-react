@@ -2,11 +2,12 @@
 
 import { use, useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Search, FileText, Code, GitPullRequest, CircleDot } from "lucide-react";
+import { ArrowLeft, Search, FileText, Code, GitPullRequest, CircleDot, Download } from "lucide-react";
 import Link from "next/link";
 import { useApp } from "@/lib/context";
 import { getAgent, getNextAgent } from "@/lib/agents";
 import { ChatInterface } from "@/components/ChatInterface";
+import { ModelSelector } from "@/components/ModelSelector";
 import { ActionPanel } from "@/components/ActionPanel";
 import type { AgentAction } from "@/lib/agents";
 import type { WorkIQResult } from "@/components/WorkIQModal";
@@ -15,9 +16,10 @@ import {
   addMessageToSession,
   addActivity,
   getSession,
-  Message,
-  Session,
-} from "@/lib/storage";
+  type Message,
+  type Session,
+} from "@/lib/sessions-api";
+import { sessionToMarkdown, downloadMarkdown } from "@/lib/export";
 
 const AGENT_ICONS = {
   "deep-research": Search,
@@ -27,7 +29,7 @@ const AGENT_ICONS = {
 
 export default function AgentPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
-  const { activeRepo, featureFlags, agents: agentRecords } = useApp();
+  const { activeRepo, agents: agentRecords } = useApp();
   const router = useRouter();
   const agent = getAgent(slug, agentRecords);
   const nextAgent = getNextAgent(slug, agentRecords);
@@ -38,11 +40,20 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
   const [streamingContent, setStreamingContent] = useState("");
   const [streamingReasoning, setStreamingReasoning] = useState("");
   const sessionRef = useRef<Session | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const [actionPanel, setActionPanel] = useState<{
     title: string;
     agentSlug: string;
     prompt: string;
   } | null>(null);
+
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
+
+  const handleModelSelection = useCallback((p: string, m: string) => {
+    setSelectedProvider(p);
+    setSelectedModel(m);
+  }, []);
 
   // Counter bumped when the home page signals "start fresh" — forces the
   // init effect to re-run even when slug/repo haven't changed.
@@ -74,61 +85,73 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
   useEffect(() => {
     if (!agent || !activeRepo) return;
 
-    // Check for a session to resume (set by the dashboard via sessionStorage)
-    const resumeKey = `web_spec_resume_${slug}`;
-    const resumeSessionId =
-      typeof window !== "undefined" ? sessionStorage.getItem(resumeKey) : null;
+    const init = async () => {
+      // Check for a session to resume (set by the dashboard via sessionStorage)
+      const resumeKey = `web_spec_resume_${slug}`;
+      const resumeSessionId =
+        typeof window !== "undefined" ? sessionStorage.getItem(resumeKey) : null;
 
-    if (resumeSessionId) {
+      if (resumeSessionId) {
+        // NOTE: We intentionally do NOT remove the key here — React Strict Mode
+        // double-fires effects, so the second run would miss the value.  The key
+        // is cleared in handleSend once the session has been consumed.
+        const existing = await getSession(resumeSessionId);
+        if (existing) {
+          setSession(existing);
+          sessionRef.current = existing;
+          setMessages(existing.messages);
+          return;
+        }
+      }
+
+      // Check for pre-loaded context from handoff (stored in sessionStorage).
       // NOTE: We intentionally do NOT remove the key here — React Strict Mode
       // double-fires effects, so the second run would miss the value.  The key
-      // is cleared in handleSend once the session has been consumed.
-      const existing = getSession(resumeSessionId);
-      if (existing) {
-        setSession(existing);
-        sessionRef.current = existing;
-        setMessages(existing.messages);
-        return;
-      }
-    }
+      // is cleared in handleSend once the context has been consumed.
+      const handoffKey = `web_spec_handoff_${slug}`;
+      const handoffContext = typeof window !== "undefined" ? sessionStorage.getItem(handoffKey) : null;
 
-    // Check for pre-loaded context from handoff (stored in sessionStorage).
-    // NOTE: We intentionally do NOT remove the key here — React Strict Mode
-    // double-fires effects, so the second run would miss the value.  The key
-    // is cleared in handleSend once the context has been consumed.
-    const handoffKey = `web_spec_handoff_${slug}`;
-    const handoffContext = typeof window !== "undefined" ? sessionStorage.getItem(handoffKey) : null;
+      const newSession = await createSession(agent.slug, agent.name, activeRepo.fullName);
 
-    const newSession = createSession(agent.slug, agent.name, activeRepo.fullName);
-
-    if (handoffContext) {
-      const updatedSession = addMessageToSession(newSession.id, {
-        role: "assistant",
-        content: `📎 Context from previous agent:\n\n${handoffContext}`,
+      // Fire and forget — track session creation in activity log
+      void addActivity({
+        type: "session_created",
+        agentSlug: agent.slug,
+        repoFullName: activeRepo.fullName,
+        description: `Started ${agent.name} session on ${activeRepo.fullName}`,
       });
 
-      if (updatedSession) {
-        setSession(updatedSession);
-        sessionRef.current = updatedSession;
-        setMessages(updatedSession.messages);
-        return;
-      }
-    }
+      if (handoffContext) {
+        const updatedSession = await addMessageToSession(newSession.id, {
+          role: "assistant",
+          content: `📎 Context from previous agent:\n\n${handoffContext}`,
+        });
 
-    setSession(newSession);
-    sessionRef.current = newSession;
-    setMessages(newSession.messages);
+        if (updatedSession) {
+          setSession(updatedSession);
+          sessionRef.current = updatedSession;
+          setMessages(updatedSession.messages);
+          return;
+        }
+      }
+
+      setSession(newSession);
+      sessionRef.current = newSession;
+      setMessages(newSession.messages);
+    };
+
+    void init();
   // activeRepo.fullName is intentionally included so the session resets when the repo switches
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug, activeRepo?.fullName, initCounter]);
 
   const handleWorkIQAttach = useCallback(
-    (items: WorkIQResult[]) => {
+    async (items: WorkIQResult[]) => {
       if (!session) return;
 
       for (const item of items) {
         const content = `📎 Work IQ Context:\n\n**${item.title}**${item.date ? ` — ${item.date}` : ""}\n\n${item.summary}`;
-        const updated = addMessageToSession(session.id, {
+        const updated = await addMessageToSession(session.id, {
           role: "assistant",
           content,
         });
@@ -146,7 +169,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
       if (!session || !activeRepo) return;
 
       // Add user message
-      const updated = addMessageToSession(session.id, { role: "user", content });
+      const updated = await addMessageToSession(session.id, { role: "user", content });
       if (!updated) return;
 
       setMessages([...updated.messages]);
@@ -155,7 +178,8 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
       setStreamingContent("");
       setStreamingReasoning("");
 
-      addActivity({
+      // Fire and forget activity log
+      void addActivity({
         type: "message_sent",
         agentSlug: slug,
         repoFullName: activeRepo.fullName,
@@ -181,12 +205,20 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
       sessionStorage.removeItem(`web_spec_resume_${slug}`);
       sessionStorage.removeItem(`web_spec_handoff_${slug}`);
 
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      const { signal } = controller;
+
+      let accumulated = "";
+      let accumulatedReasoning = "";
+
       try {
         const res = await fetch("/api/agent/run", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
+          signal,
           body: JSON.stringify({
             agentSlug: slug,
             prompt: content,
@@ -211,8 +243,6 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
-        let accumulated = "";
-        let accumulatedReasoning = "";
         let currentEvent = "";
         let lineBuffer = "";
 
@@ -268,7 +298,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         }
 
         // Save assistant response
-        const finalSession = addMessageToSession(session.id, {
+        const finalSession = await addMessageToSession(session.id, {
           role: "assistant",
           content: accumulated || "⚠️ No response received. Check that the Copilot CLI is installed and authenticated (`copilot --version`).",
           reasoning: accumulatedReasoning || undefined,
@@ -279,12 +309,26 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
           sessionRef.current = finalSession;
         }
       } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          // User cancelled — save any partial content that was streamed
+          const cancelledSession = await addMessageToSession(session.id, {
+            role: "assistant",
+            content: accumulated || "⏹ Generation stopped.",
+            reasoning: accumulatedReasoning || undefined,
+          });
+          if (cancelledSession) {
+            setMessages([...cancelledSession.messages]);
+            sessionRef.current = cancelledSession;
+          }
+          return;
+        }
+
         const errorContent =
           err instanceof Error
             ? `⚠️ Error: ${err.message}`
             : "⚠️ An unexpected error occurred.";
 
-        const finalSession = addMessageToSession(session.id, {
+        const finalSession = await addMessageToSession(session.id, {
           role: "assistant",
           content: errorContent,
         });
@@ -294,6 +338,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
           sessionRef.current = finalSession;
         }
       } finally {
+        abortControllerRef.current = null;
         setIsStreaming(false);
         setStreamingContent("");
         setStreamingReasoning("");
@@ -353,7 +398,7 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
       sessionStorage.setItem(`web_spec_handoff_${nextAgent.slug}`, lastAssistant.content);
     }
 
-    addActivity({
+    void addActivity({
       type: "agent_handoff",
       agentSlug: nextAgent.slug,
       repoFullName: activeRepo?.fullName,
@@ -362,6 +407,10 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
 
     router.push(`/agents/${nextAgent.slug}`);
   }
+
+  const handleCancel = useCallback(() => {
+    abortControllerRef.current?.abort();
+  }, []);
 
   if (!agent) {
     return (
@@ -379,12 +428,12 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
   const agentActions: AgentAction[] | undefined =
     agent.slug === "prd"
       ? [
-          ...(featureFlags.generatePrd ? [{ label: "Create PRD on Repo", description: "Create a branch with the PRD document in the repo", icon: GitPullRequest, onClick: handleCreatePRD }] : []),
-        ].filter(Boolean) as AgentAction[]
+          { label: "Create PRD on Repo", description: "Create a branch with the PRD document in the repo", icon: GitPullRequest, onClick: handleCreatePRD },
+        ]
       : agent.slug === "technical-docs"
       ? [
-          ...(featureFlags.generateTechSpecs ? [{ label: "Create Docs on Repo", description: "Create a branch with spec files in the repo", icon: GitPullRequest, onClick: handleCreateSpecs }] : []),
-          ...(featureFlags.createGithubIssues ? [{ label: "Create GitHub Issues", description: "Create GitHub issues from the spec", icon: CircleDot, onClick: handleCreateIssues }] : []),
+          { label: "Create Docs on Repo", description: "Create a branch with spec files in the repo", icon: GitPullRequest, onClick: handleCreateSpecs },
+          { label: "Create GitHub Issues", description: "Create GitHub issues from the spec", icon: CircleDot, onClick: handleCreateIssues },
         ]
       : undefined;
 
@@ -406,12 +455,42 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
           <Icon size={18} style={{ color: agent.iconColor }} />
         </div>
 
-        <div>
+        <div className="flex-1">
           <h1 className="font-semibold text-text-primary text-base">{agent.name}</h1>
           {activeRepo && (
             <p className="text-xs text-muted">{activeRepo.fullName}</p>
           )}
         </div>
+
+        {/* Model selector */}
+        <ModelSelector
+          onSelectionChange={handleModelSelection}
+          disabled={isStreaming}
+        />
+
+        {/* Export button */}
+        {(() => {
+          const hasAssistantMessage = messages.some((m) => m.role === "assistant");
+          return (
+            <button
+              onClick={() => {
+                if (!session || !activeRepo) return;
+                const filename = `${slug}-${activeRepo.repoName}-${new Date().toISOString().slice(0, 10)}.md`;
+                downloadMarkdown(filename, sessionToMarkdown(session, agent.name));
+              }}
+              disabled={!hasAssistantMessage}
+              aria-label="Export session as Markdown"
+              title="Export session as Markdown"
+              className={`p-2 rounded-lg transition-colors ${
+                hasAssistantMessage
+                  ? "text-text-secondary hover:text-accent hover:bg-surface-2"
+                  : "text-muted opacity-50 cursor-not-allowed"
+              }`}
+            >
+              <Download size={16} />
+            </button>
+          );
+        })()}
       </div>
 
       {/* Chat */}
@@ -425,8 +504,11 @@ export default function AgentPage({ params }: { params: Promise<{ slug: string }
         streamingReasoning={streamingReasoning}
         nextAgent={nextAgent}
         onHandoff={handleHandoff}
+        onCancel={handleCancel}
         disabled={!activeRepo}
         agentActions={agentActions}
+        provider={selectedProvider}
+        model={selectedModel}
       />
       {actionPanel && activeRepo && (
         <ActionPanel

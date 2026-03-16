@@ -41,8 +41,8 @@ Each agent hands off its output to the next, streaming results in real time. The
 - **Atlassian integration** — search Jira issues and Confluence pages, download them as Markdown context documents, auto-inject into agent sessions
 - **WorkIQ integration** — search Microsoft 365 data (emails, meetings, documents, Teams) and attach results as context
 - **Parallel context gathering** — all context sources (handoff, Copilot Spaces, WorkIQ, KDB, Atlassian) are fetched concurrently via `Promise.allSettled` — a single source failure never aborts a run
-- **Multi-provider LLM** — choose between GitHub Copilot and Google Vertex AI (Gemini) at runtime via the model selector
-- **Dashboard** — session history and activity log persisted in `localStorage`; per-session and bulk delete
+- **Multi-provider LLM** — choose between GitHub Copilot and Google Vertex AI (Gemini) at runtime via the model selector in the agent page header
+- **Dashboard** — session history and activity log persisted in **SQLite** (backend); per-session and bulk delete, per-session export to Markdown
 - **Admin panel** — create, view, and edit agents (model, tools, prompt) at runtime from `/admin/agents` — backed by SQLite
 - **Feature flags** — toggle visibility of KDB, WorkIQ, Atlassian, and action buttons from `/settings`
 - **Quick prompts** — one-click prompt buttons on PRD and Technical Docs agents to auto-fill context-based prompts
@@ -74,20 +74,20 @@ flowchart TD
     Backend -- "git clone + PAT" --> Bitbucket
     Backend -- "search + download" --> Atlassian
     Backend -- "MCP proxy" --> WorkIQ
-    Backend -- "agent CRUD" --> DB
+    Backend -- "agent CRUD\nsessions · messages\nactivity" --> DB
     SDK --> GitHub
 ```
 
 | Layer | Responsibilities |
 |---|---|
-| **Frontend** | `/` Agent selector · `/agents/[slug]` Streaming chat · `/dashboard` Session history · `/kdb` Knowledge Base · `/settings` Feature flags · `/admin/agents` Agent CRUD editor. Global state via `AppProvider` (React Context) + `localStorage`. |
-| **Backend** | REST + SSE API. Clones repos via `gh` (GitHub) or `git` (Bitbucket). Routes agent runs to Copilot SDK or Vertex AI. Proxies Atlassian, WorkIQ, and KDB requests. Manages agent configs in SQLite. |
+| **Frontend** | `/` Agent selector · `/agents/[slug]` Streaming chat · `/dashboard` Session history · `/kdb` Knowledge Base · `/settings` Feature flags · `/admin/agents` Agent CRUD editor. Active-repo state via `AppProvider` (React Context) + `localStorage`; sessions/messages/activity fetched from the backend API. |
+| **Backend** | REST + SSE API. Clones repos via `gh` (GitHub) or `git` (Bitbucket). Routes agent runs to Copilot SDK or Vertex AI. Proxies Atlassian, WorkIQ, and KDB requests. Persists agent configs, sessions, messages, and activity events in SQLite. |
 | **Copilot SDK** | Agent sessions via `@github/copilot-sdk` with tool permissions (grep, glob, view, bash) defined per agent in the database. |
 | **Vertex AI** | Gemini models via `@google/genai` — same SSE streaming interface as Copilot, selectable at runtime. |
 | **Atlassian** | Jira issue + Confluence page search; pages are converted to Markdown via Turndown and stored as context documents on disk. |
 | **WorkIQ** | M365 queries (emails, meetings, docs, Teams) proxied via the WorkIQ MCP CLI and injected as agent context. |
 
-The backend is **stateless** except for `agents.db` (agent configs only). All user-facing state lives in `localStorage` on the client.
+The backend persists **agent configs, sessions, messages, and activity events** in `agents.db` (SQLite). The only client-side state is the active repository selection, stored in `localStorage`.
 
 For detailed sequence diagrams see [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -181,7 +181,7 @@ Then open [http://localhost:3000](http://localhost:3000) in your browser.
 
 1. Copy `backend/.env.example` to `backend/.env` and configure at least one LLM provider (see [Environment Variables](#environment-variables)).
 2. Click **Select repo** in the repository bar, search for a GitHub repository, and select it — it will be cloned automatically to `~/work/{owner}/{repo}`.
-3. Choose an agent from the landing page, pick a provider/model from the model selector, and start chatting.
+3. Choose an agent from the landing page, pick a provider/model from the **model selector in the page header**, and start chatting.
 4. *(Optional)* Configure Atlassian and/or WorkIQ credentials to unlock additional context sources.
 
 ---
@@ -225,7 +225,9 @@ agentic-react/
 │   └── lib/
 │       ├── agents.ts               # AgentConfig type + helpers
 │       ├── agents-api.ts           # REST client for /api/agents
-│       ├── storage.ts              # localStorage helpers (SSR-safe)
+│       ├── sessions-api.ts         # REST client for /api/sessions + /api/activity
+│       ├── export.ts               # sessionToMarkdown + downloadMarkdown helpers
+│       ├── storage.ts              # localStorage helpers (SSR-safe, active repo only)
 │       ├── context.tsx             # AppProvider — global React context
 │       ├── repo-cache.ts           # Repository search cache
 │       ├── spaces-cache.ts         # Copilot Spaces cache (5-min TTL)
@@ -260,6 +262,7 @@ agentic-react/
 │           ├── agent.ts            # POST /run — SSE streaming (provider routing)
 │           ├── agents.ts           # CRUD /api/agents
 │           ├── providers.ts        # GET /models
+│           ├── sessions.ts         # CRUD /api/sessions · /api/activity
 │           ├── kdb.ts              # GET /spaces (Copilot Spaces proxy)
 │           ├── kdb-external.ts     # CRUD /api/kdb/external
 │           ├── atlassian.ts        # GET /status · POST /search
@@ -380,6 +383,19 @@ All API endpoints are served by the backend on port `3001`.
 | `POST` | `/api/workiq/search` | Search M365 data via WorkIQ MCP CLI |
 | `GET` | `/api/workiq/status` | Check if WorkIQ CLI is available |
 
+### Sessions & Activity
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/sessions` | List all sessions (with message count), newest first |
+| `POST` | `/api/sessions` | Create a new session |
+| `GET` | `/api/sessions/:id` | Get a single session with all messages |
+| `PUT` | `/api/sessions/:id` | Update session title / updatedAt |
+| `DELETE` | `/api/sessions/:id` | Delete a session and its messages |
+| `DELETE` | `/api/sessions` | Delete **all** sessions |
+| `GET` | `/api/activity` | List recent activity events |
+| `POST` | `/api/activity` | Record an activity event |
+
 ### Other
 
 | Method | Endpoint | Description |
@@ -466,7 +482,7 @@ cd frontend && npm run lint
 
 | Flow | Steps |
 |---|---|
-| **Auth** | Set `GITHUB_PAT` in `backend/.env` → restart backend → confirm model selector shows Copilot provider |
+| **Auth** | Set `GITHUB_PAT` in `backend/.env` → restart backend → confirm model selector (agent page header) shows Copilot provider |
 | **Repo clone** | Click **Select repo** → search for a public repo → select it → confirm it appears in the repo bar |
 | **Agent run** | Pick any agent → type a prompt → confirm streamed tokens appear in the chat |
 | **Agent handoff** | Complete a Deep Research session → click **Send to PRD Writer** → confirm context is prepopulated |

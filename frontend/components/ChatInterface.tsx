@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Loader2, ArrowRight, User, Bot, Brain, ChevronDown, ChevronUp, Sparkles, BrainCircuit, Briefcase } from "lucide-react";
+import { Send, Loader2, ArrowRight, User, Bot, Brain, ChevronDown, ChevronUp, Sparkles, BrainCircuit, Briefcase, Copy, Check, Square } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Message } from "@/lib/storage";
@@ -9,7 +9,6 @@ import { AgentConfig, AgentAction } from "@/lib/agents";
 import { SpaceSelector } from "@/components/SpaceSelector";
 import { KDBSelector } from "@/components/KDBSelector";
 import { AtlassianSelector } from "@/components/AtlassianSelector";
-import { ModelSelector } from "@/components/ModelSelector";
 import { WorkIQModal, WorkIQResult } from "@/components/WorkIQModal";
 import { checkWorkIQStatus } from "@/lib/workiq";
 import { useApp } from "@/lib/context";
@@ -24,14 +23,25 @@ interface ChatInterfaceProps {
   streamingReasoning?: string;
   nextAgent?: AgentConfig;
   onHandoff?: () => void;
+  onCancel?: () => void;
   disabled?: boolean;
   agentActions?: AgentAction[];
+  provider: string | null;
+  model: string | null;
 }
 
 function MessageBubble({ msg }: { msg: Message }) {
   const isUser = msg.role === "user";
   const isWorkIQ = !isUser && msg.content.startsWith("📎 Work IQ Context:");
   const [reasoningOpen, setReasoningOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+    };
+  }, []);
 
   return (
     <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
@@ -56,8 +66,8 @@ function MessageBubble({ msg }: { msg: Message }) {
           isUser
             ? "px-4 py-3 border-l-4 border-accent bg-surface-2 text-text-primary rounded-tr-sm whitespace-pre-wrap"
             : isWorkIQ
-            ? "bg-surface-2 border border-purple-500/30 text-text-primary rounded-tl-sm"
-            : "bg-surface-2 border border-border text-text-primary rounded-tl-sm"
+            ? "relative group bg-surface-2 border border-purple-500/30 text-text-primary rounded-tl-sm"
+            : "relative group bg-surface-2 border border-border text-text-primary rounded-tl-sm"
         }`}
       >
         {isUser ? (
@@ -95,6 +105,28 @@ function MessageBubble({ msg }: { msg: Message }) {
                 {isWorkIQ ? msg.content.replace(/^📎 Work IQ Context:\n\n/, "") : msg.content}
               </ReactMarkdown>
             </div>
+            {!isWorkIQ && (
+              <button
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(msg.content);
+                    setCopied(true);
+                    if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+                    copyTimeoutRef.current = setTimeout(() => setCopied(false), 1500);
+                  } catch {
+                    // silently swallow clipboard errors
+                  }
+                }}
+                aria-label="Copy message"
+                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-background"
+              >
+                {copied ? (
+                  <Check size={13} className="text-green-400" />
+                ) : (
+                  <Copy size={13} className="text-text-secondary hover:text-accent" />
+                )}
+              </button>
+            )}
           </>
         )}
       </div>
@@ -133,14 +165,15 @@ export function ChatInterface({
   streamingReasoning,
   nextAgent,
   onHandoff,
+  onCancel,
   disabled,
   agentActions,
+  provider,
+  model,
 }: ChatInterfaceProps) {
   const [input, setInput] = useState("");
   const [selectedSpaces, setSelectedSpaces] = useState<string[]>([]);
   const [selectedKdbIds, setSelectedKdbIds] = useState<string[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [isReasoningOpen, setIsReasoningOpen] = useState(true);
   const [workiqAvailable, setWorkiqAvailable] = useState(false);
   const [workiqModalOpen, setWorkiqModalOpen] = useState(false);
@@ -148,7 +181,7 @@ export function ChatInterface({
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { featureFlags, copilotConfigured } = useApp();
+  const { copilotConfigured } = useApp();
 
   // Check WorkIQ availability on mount
   useEffect(() => {
@@ -180,20 +213,15 @@ export function ChatInterface({
     }
   }, [messages, streamingContent, isStreaming]);
 
-  const handleModelSelection = useCallback((p: string, m: string) => {
-    setSelectedProvider(p);
-    setSelectedModel(m);
-  }, []);
-
   const handleSubmit = useCallback(async () => {
     const text = input.trim();
-    if (!text || isStreaming || disabled || !selectedProvider || !selectedModel) return;
+    if (!text || isStreaming || disabled || !provider || !model) return;
     setInput("");
     const itemsToSend = workiqItems.length > 0 ? [...workiqItems] : undefined;
     setWorkiqItems([]);
     const kdbRefsToSend = selectedKdbIds.length > 0 ? [...selectedKdbIds] : undefined;
-    await onSend(text, selectedSpaces, selectedProvider, selectedModel, itemsToSend, kdbRefsToSend);
-  }, [input, isStreaming, disabled, onSend, selectedSpaces, selectedKdbIds, workiqItems, selectedProvider, selectedModel]);
+    await onSend(text, selectedSpaces, provider, model, itemsToSend, kdbRefsToSend);
+  }, [input, isStreaming, disabled, onSend, selectedSpaces, selectedKdbIds, workiqItems, provider, model]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -336,7 +364,7 @@ export function ChatInterface({
               </button>
             )}
           </div>
-          {featureFlags.workiq && workiqAvailable && (
+          {workiqAvailable && (
             <button
               type="button"
               onClick={() => setWorkiqModalOpen(true)}
@@ -352,11 +380,11 @@ export function ChatInterface({
               )}
             </button>
           )}
-          {featureFlags.kdb && copilotConfigured && (
+          {copilotConfigured && (
             <SpaceSelector
               onSelectionChange={setSelectedSpaces}
               disabled={disabled || isStreaming}
-              providerIsVertex={selectedProvider === "vertex"}
+              providerIsVertex={provider === "vertex"}
             />
           )}
           <KDBSelector
@@ -366,22 +394,26 @@ export function ChatInterface({
           <AtlassianSelector
             disabled={disabled || isStreaming}
           />
-          <ModelSelector
-            onSelectionChange={handleModelSelection}
-            disabled={disabled || isStreaming}
-          />
-          <button
-            onClick={handleSubmit}
-            disabled={!input.trim() || isStreaming || disabled || !selectedProvider || !selectedModel}
-            className="w-10 rounded-xl flex items-center justify-center transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ backgroundColor: agent.iconColor }}
-          >
-            {isStreaming ? (
-              <Loader2 size={16} className="text-white animate-spin" />
-            ) : (
+          {isStreaming ? (
+            <button
+              type="button"
+              onClick={() => onCancel?.()}
+              disabled={disabled}
+              aria-label="Stop generation"
+              className="w-10 rounded-xl flex items-center justify-center transition-colors flex-shrink-0 bg-surface-2 border border-border hover:border-red-400 hover:text-red-400 text-text-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Square size={16} />
+            </button>
+          ) : (
+            <button
+              onClick={handleSubmit}
+              disabled={!input.trim() || disabled || !provider || !model}
+              className="w-10 rounded-xl flex items-center justify-center transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{ backgroundColor: agent.iconColor }}
+            >
               <Send size={16} className="text-white" />
-            )}
-          </button>
+            </button>
+          )}
         </div>
         <p className="text-xs text-muted mt-2 text-center">
           Press Enter to send · Shift+Enter for new line

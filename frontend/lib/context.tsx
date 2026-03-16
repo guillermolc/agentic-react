@@ -3,13 +3,9 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import {
   ActiveRepo,
-  FeatureFlags,
-  DEFAULT_FEATURE_FLAGS,
   getActiveRepo,
   saveActiveRepo,
   clearActiveRepo,
-  getFeatureFlags,
-  saveFeatureFlags,
 } from "@/lib/storage";
 import { clearRepoCache } from "@/lib/repo-cache";
 import { clearSpacesCache } from "@/lib/spaces-cache";
@@ -18,13 +14,11 @@ import { AgentRecord, fetchAgents } from "@/lib/agents-api";
 interface AppContextValue {
   hydrated: boolean;
   activeRepo: ActiveRepo | null;
-  featureFlags: FeatureFlags;
   agents: AgentRecord[];
   copilotConfigured: boolean;
   clearAuth: () => void;
   setActiveRepo: (repo: ActiveRepo) => void;
   removeActiveRepo: () => void;
-  setFeatureFlags: (flags: FeatureFlags) => void;
   refreshAgents: () => Promise<void>;
 }
 
@@ -32,7 +26,6 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [activeRepo, setActiveRepoState] = useState<ActiveRepo | null>(null);
-  const [featureFlags, setFeatureFlagsState] = useState<FeatureFlags>({ ...DEFAULT_FEATURE_FLAGS });
   const [hydrated, setHydrated] = useState(false);
   const [agents, setAgents] = useState<AgentRecord[]>([]);
   const [copilotConfigured, setCopilotConfigured] = useState(false);
@@ -48,7 +41,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setActiveRepoState(getActiveRepo());
-    setFeatureFlagsState(getFeatureFlags());
     setHydrated(true);
     void refreshAgents();
     // Check if copilot provider is configured
@@ -77,23 +69,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setActiveRepoState(null);
   }
 
-  function setFeatureFlags(flags: FeatureFlags) {
-    saveFeatureFlags(flags);
-    setFeatureFlagsState(flags);
-  }
-
   return (
     <AppContext.Provider
       value={{
         hydrated,
         activeRepo,
-        featureFlags,
         agents,
         copilotConfigured,
         clearAuth,
         setActiveRepo,
         removeActiveRepo,
-        setFeatureFlags,
         refreshAgents,
       }}
     >

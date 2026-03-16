@@ -2,28 +2,23 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bot, Database, LayoutDashboard } from "lucide-react";
-import { SettingsDropdown } from "@/components/SettingsDropdown";
-import { useApp } from "@/lib/context";
+import { Bot, Database, LayoutDashboard, Settings } from "lucide-react";
 
 const NAV_LINKS = [
-  { href: "/", label: "Agents", icon: Bot, flag: null },
-  { href: "/kdb", label: "KDB", icon: Database, flag: "kdb" as const },
-  { href: "/dashboard", label: "Sessions", icon: LayoutDashboard, flag: null },
+  { href: "/", label: "Agents", icon: Bot },
+  { href: "/admin", label: "Manage Agents", icon: Settings },
+  { href: "/kdb", label: "KDB", icon: Database },
+  { href: "/dashboard", label: "Sessions", icon: LayoutDashboard },
 ];
 
 export function Nav() {
   const pathname = usePathname();
-  const { featureFlags } = useApp();
 
   function isActive(href: string) {
     if (href === "/") return pathname === "/" || pathname.startsWith("/agents");
+    if (href === "/admin") return pathname.startsWith("/admin");
     return pathname.startsWith(href);
   }
-
-  const visibleLinks = NAV_LINKS.filter(
-    ({ flag }) => flag === null || featureFlags[flag]
-  );
 
   return (
     <header className="border-b border-border bg-gradient-to-r from-surface to-transparent sticky top-0 z-50">
@@ -36,7 +31,7 @@ export function Nav() {
 
         {/* Nav links */}
         <nav className="flex items-center gap-1">
-          {visibleLinks.map(({ href, label, icon: Icon }) => (
+          {NAV_LINKS.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
@@ -52,8 +47,6 @@ export function Nav() {
           ))}
         </nav>
 
-        {/* Settings */}
-        <SettingsDropdown />
       </div>
     </header>
   );

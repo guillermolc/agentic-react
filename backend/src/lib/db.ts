@@ -38,6 +38,7 @@ export const db = new Database(DB_PATH);
 
 // Enable WAL mode for better concurrent read performance
 db.pragma("journal_mode = WAL");
+db.pragma("foreign_keys = ON");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS agents (
@@ -71,3 +72,69 @@ db.exec(`
     createdAt   TEXT NOT NULL
   )
 `);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sessions (
+    id           TEXT PRIMARY KEY,
+    agentSlug    TEXT NOT NULL,
+    agentName    TEXT NOT NULL,
+    title        TEXT NOT NULL,
+    repoFullName TEXT NOT NULL,
+    createdAt    INTEGER NOT NULL,
+    updatedAt    INTEGER NOT NULL
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS messages (
+    id        TEXT PRIMARY KEY,
+    sessionId TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    role      TEXT NOT NULL,
+    content   TEXT NOT NULL,
+    reasoning TEXT,
+    createdAt INTEGER NOT NULL
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS activity (
+    id           TEXT PRIMARY KEY,
+    type         TEXT NOT NULL,
+    agentSlug    TEXT,
+    repoFullName TEXT,
+    description  TEXT NOT NULL,
+    createdAt    INTEGER NOT NULL
+  )
+`);
+
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_messages_sessionId ON messages(sessionId)
+`);
+
+export interface SessionRow {
+  id: string;
+  agentSlug: string;
+  agentName: string;
+  title: string;
+  repoFullName: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface MessageRow {
+  id: string;
+  sessionId: string;
+  role: string;
+  content: string;
+  reasoning: string | null;
+  createdAt: number;
+}
+
+export interface ActivityRow {
+  id: string;
+  type: string;
+  agentSlug: string | null;
+  repoFullName: string | null;
+  description: string;
+  createdAt: number;
+}

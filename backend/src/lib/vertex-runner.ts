@@ -4,7 +4,7 @@
  *   chunk (token), reasoning (think block), done, error.
  */
 
-import { Response } from "express";
+import { Request, Response } from "express";
 import { GoogleGenAI } from "@google/genai";
 import { getVertexCredentials } from "./providers.js";
 
@@ -24,6 +24,7 @@ const THINK_CLOSE = "</think>";
 export async function runWithVertex(
   opts: VertexRunOpts,
   res: Response,
+  req: Request,
 ): Promise<void> {
   const credentials = getVertexCredentials();
   if (!credentials) {
@@ -50,9 +51,22 @@ export async function runWithVertex(
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
+  let done = false;
+
   const sendEvent = (type: string, data: string) => {
+    if (done) return;
     res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
   };
+
+  const finish = (reason = "unknown") => {
+    if (done) return;
+    done = true;
+    console.log(`[agent:vertex] finish() called, reason: ${reason}`);
+    sendEvent("done", "");
+    res.end();
+  };
+
+  req.on("close", () => { finish("req.close"); });
 
   // Track <think> blocks for reasoning extraction
   let thinkState: "waiting" | "in_think" | "answering" = "waiting";
@@ -107,6 +121,7 @@ export async function runWithVertex(
     });
 
     for await (const chunk of stream) {
+      if (done) break;
       const text = chunk.text;
       if (text) {
         processChunk(text);
@@ -114,18 +129,17 @@ export async function runWithVertex(
     }
 
     // Flush any remaining buffered reasoning
-    if ((thinkState as string) === "in_think" && thinkBuffer.length > 0) {
+    if (!done && (thinkState as string) === "in_think" && thinkBuffer.length > 0) {
       sendEvent("reasoning", thinkBuffer);
     }
 
-    sendEvent("done", "");
-    res.end();
+    finish("stream.complete");
   } catch (err: unknown) {
+    if (done) return;
     const msg = err instanceof Error ? err.message : "Vertex AI error";
     // Avoid leaking credentials in error messages
     const safeMsg = msg.replace(/private_key[^\s]*/gi, "***").replace(/client_email[^\s]*/gi, "***");
     sendEvent("error", safeMsg);
-    sendEvent("done", "");
-    res.end();
+    finish("stream.error");
   }
 }

@@ -20,7 +20,6 @@ export function AgentForm({ agent, onSubmit, onCancel }: AgentFormProps) {
   const [displayName, setDisplayName] = useState(agent?.displayName ?? "");
   const [shortName, setShortName] = useState(agent?.shortName ?? "");
   const [description, setDescription] = useState(agent?.description ?? "");
-  const [model, setModel] = useState(agent?.model ?? "");
   const [tools, setTools] = useState(agent?.tools?.join(", ") ?? "");
   const [prompt, setPrompt] = useState(agent?.prompt ?? "");
   const [color, setColor] = useState(agent?.color ?? "");
@@ -59,7 +58,6 @@ export function AgentForm({ agent, onSubmit, onCancel }: AgentFormProps) {
         displayName: displayName.trim(),
         shortName: shortName.trim() || null,
         description: description.trim() || null,
-        model: model.trim() || null,
         tools: tools.trim() ? tools.split(",").map((t) => t.trim()).filter(Boolean) : [],
         prompt: prompt.trim(),
         color: color.trim() || null,
@@ -154,34 +152,19 @@ export function AgentForm({ agent, onSubmit, onCancel }: AgentFormProps) {
         />
       </div>
 
-      {/* Row: model + tools */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label htmlFor="model" className={labelClass}>
-            Model
-          </label>
-          <input
-            id="model"
-            type="text"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            placeholder="gpt-4.1"
-            className={inputClass}
-          />
-        </div>
-        <div>
-          <label htmlFor="tools" className={labelClass}>
-            Tools (comma-separated)
-          </label>
-          <input
-            id="tools"
-            type="text"
-            value={tools}
-            onChange={(e) => setTools(e.target.value)}
-            placeholder="grep, glob, view, bash"
-            className={inputClass}
-          />
-        </div>
+      {/* Tools */}
+      <div>
+        <label htmlFor="tools" className={labelClass}>
+          Tools (comma-separated)
+        </label>
+        <input
+          id="tools"
+          type="text"
+          value={tools}
+          onChange={(e) => setTools(e.target.value)}
+          placeholder="grep, glob, view, bash"
+          className={inputClass}
+        />
       </div>
 
       {/* Prompt */}

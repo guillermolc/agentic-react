@@ -10,6 +10,7 @@ import { agentsRouter } from "./routes/agents.js";
 import { providersRouter } from "./routes/providers.js";
 import { atlassianRouter } from "./routes/atlassian.js";
 import { atlassianDownloadRouter } from "./routes/atlassian-download.js";
+import { sessionsRouter, activityRouter } from "./routes/sessions.js";
 import { seedAgents } from "./lib/seed.js";
 
 dotenv.config({ override: true });
@@ -37,6 +38,8 @@ app.use("/api/workiq", workiqRouter);
 app.use("/api/providers", providersRouter);
 app.use("/api/atlassian", atlassianRouter);
 app.use("/api/atlassian", atlassianDownloadRouter);
+app.use("/api/sessions", sessionsRouter);
+app.use("/api/activity", activityRouter);
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });

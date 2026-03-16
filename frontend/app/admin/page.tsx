@@ -1,311 +1,189 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { Loader2, Save } from "lucide-react";
-import Link from "next/link";
-
-const API_BASE = "/api/backend/admin/agents";
-const AVAILABLE_TOOLS = ["grep", "glob", "view", "bash"];
-
-interface Agent {
-  slug: string;
-  name: string;
-  displayName: string;
-  description?: string;
-  tools?: string[];
-  prompt: string;
-}
-
-interface FormState {
-  displayName: string;
-  description: string;
-  tools: string[];
-  prompt: string;
-}
-
-function formFromAgent(agent: Agent): FormState {
-  return {
-    displayName: agent.displayName ?? "",
-    description: agent.description ?? "",
-    tools: agent.tools ?? [],
-    prompt: agent.prompt ?? "",
-  };
-}
-
-function formsEqual(a: FormState, b: FormState): boolean {
-  return (
-    a.displayName === b.displayName &&
-    a.description === b.description &&
-    a.prompt === b.prompt &&
-    a.tools.length === b.tools.length &&
-    a.tools.every((t) => b.tools.includes(t))
-  );
-}
+import { useState, useEffect, useCallback } from "react";
+import { Plus, Pencil, Trash2, X, Loader2 } from "lucide-react";
+import { useApp } from "@/lib/context";
+import {
+  AgentRecord,
+  createAgent,
+  updateAgent,
+  deleteAgent,
+} from "@/lib/agents-api";
+import { AgentForm } from "@/components/AgentForm";
 
 export default function AdminPage() {
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [listError, setListError] = useState<string | null>(null);
-  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
+  const { agents, refreshAgents } = useApp();
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [editingAgent, setEditingAgent] = useState<AgentRecord | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
 
-  const [form, setForm] = useState<FormState>({
-    displayName: "",
-    description: "",
-    tools: [],
-    prompt: "",
-  });
-  const savedForm = useRef<FormState>(form);
-  const isDirty = !formsEqual(form, savedForm.current);
-
-  const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
-
-  // Fetch agent list on mount
   useEffect(() => {
-    fetch(API_BASE)
-      .then((r) => {
-        if (!r.ok) throw new Error(`Failed to load agents (${r.status})`);
-        return r.json();
-      })
-      .then((data: Agent[]) => {
-        setAgents(data);
-        if (data.length > 0) {
-          setSelectedSlug(data[0].slug);
-          const initial = formFromAgent(data[0]);
-          setForm(initial);
-          savedForm.current = initial;
-        }
-      })
-      .catch((e) => setListError(e.message))
+    refreshAgents()
+      .catch(() => setError("Failed to load agents"))
       .finally(() => setLoading(false));
-  }, []);
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load full agent when selection changes
-  useEffect(() => {
-    if (!selectedSlug) return;
-    fetch(`${API_BASE}/${selectedSlug}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`Failed to load agent (${r.status})`);
-        return r.json();
-      })
-      .then((agent: Agent) => {
-        const f = formFromAgent(agent);
-        setForm(f);
-        savedForm.current = f;
-        setSaveMsg(null);
-      })
-      .catch(() => {});
-  }, [selectedSlug]);
-
-  const selectAgent = useCallback(
-    (slug: string) => {
-      if (slug === selectedSlug) return;
-      if (isDirty) {
-        if (!window.confirm("You have unsaved changes. Discard them?")) return;
-      }
-      setSelectedSlug(slug);
+  const handleCreate = useCallback(
+    async (data: Partial<AgentRecord> & { slug: string; name: string; displayName: string; prompt: string }) => {
+      await createAgent(data);
+      await refreshAgents();
+      setIsCreating(false);
     },
-    [selectedSlug, isDirty],
+    [refreshAgents],
   );
 
-  const handleSave = useCallback(async () => {
-    if (!selectedSlug || saving) return;
-    setSaving(true);
-    setSaveMsg(null);
-    try {
-      const res = await fetch(`${API_BASE}/${selectedSlug}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          displayName: form.displayName,
-          description: form.description,
-          tools: form.tools,
-          prompt: form.prompt,
-        }),
-      });
-      if (!res.ok) throw new Error(`Save failed (${res.status})`);
-      const updated: Agent = await res.json();
-      const f = formFromAgent(updated);
-      setForm(f);
-      savedForm.current = f;
-      // Update sidebar list
-      setAgents((prev) => prev.map((a) => (a.slug === updated.slug ? updated : a)));
-      setSaveMsg({ type: "success", text: "Saved successfully" });
-      setTimeout(() => setSaveMsg((m) => (m?.type === "success" ? null : m)), 3000);
-    } catch (e: unknown) {
-      setSaveMsg({ type: "error", text: e instanceof Error ? e.message : "Save failed" });
-    } finally {
-      setSaving(false);
-    }
-  }, [selectedSlug, saving, form]);
+  const handleUpdate = useCallback(
+    async (slug: string, data: Partial<Omit<AgentRecord, "slug">>) => {
+      await updateAgent(slug, data);
+      await refreshAgents();
+      setEditingAgent(null);
+    },
+    [refreshAgents],
+  );
 
-  const toggleTool = (tool: string) => {
-    setForm((f) => ({
-      ...f,
-      tools: f.tools.includes(tool) ? f.tools.filter((t) => t !== tool) : [...f.tools, tool],
-    }));
-  };
+  const handleDelete = useCallback(
+    async (slug: string) => {
+      if (!window.confirm(`Delete agent "${slug}"? This cannot be undone.`)) return;
+      await deleteAgent(slug);
+      await refreshAgents();
+    },
+    [refreshAgents],
+  );
 
-  const selectedAgent = agents.find((a) => a.slug === selectedSlug);
+  const showForm = isCreating || editingAgent !== null;
 
   return (
-    <div className="flex h-[calc(100vh-5rem)] overflow-hidden">
-      {/* Sidebar */}
-      <aside className="w-[280px] shrink-0 border-r border-border bg-surface overflow-y-auto">
-        <div className="p-4 border-b border-border">
-          <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">
-            Agents
-          </h2>
-          <Link
-            href="/admin/agents"
-            className="mt-2 inline-block text-xs text-accent hover:underline"
+    <div className="max-w-6xl mx-auto px-4 py-8">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="text-2xl font-display font-bold text-text-primary">
+          Manage Agents
+        </h1>
+        {!showForm && (
+          <button
+            onClick={() => setIsCreating(true)}
+            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-opacity"
           >
-            Manage Agents (CRUD) →
-          </Link>
+            <Plus size={16} />
+            New Agent
+          </button>
+        )}
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div className="mb-6 p-4 rounded-lg border border-red-500/20 bg-red-500/10 text-red-400 text-sm">
+          {error}
         </div>
-        {loading && (
-          <div className="flex items-center justify-center p-8 text-muted">
-            <Loader2 className="w-5 h-5 animate-spin" />
+      )}
+
+      {/* Form overlay */}
+      {showForm && (
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-text-primary">
+              {isCreating ? "Create New Agent" : `Edit: ${editingAgent?.displayName}`}
+            </h2>
+            <button
+              onClick={() => {
+                setIsCreating(false);
+                setEditingAgent(null);
+              }}
+              className="text-text-secondary hover:text-text-primary transition-colors"
+            >
+              <X size={20} />
+            </button>
           </div>
-        )}
-        {listError && (
-          <div className="p-4 text-red-400 text-sm">{listError}</div>
-        )}
-        {!loading &&
-          !listError &&
-          agents.map((agent) => {
-            const isSelected = agent.slug === selectedSlug;
-            return (
-              <button
-                key={agent.slug}
-                onClick={() => selectAgent(agent.slug)}
-                className={`w-full text-left px-4 py-3 border-l-2 transition-colors ${
-                  isSelected
-                    ? "border-accent text-accent bg-surface-2"
-                    : "border-transparent text-text-primary hover:bg-surface-2"
-                }`}
-              >
-                <div className="font-semibold text-sm truncate">{agent.displayName}</div>
-                {agent.description && (
-                  <div className="text-xs text-muted mt-0.5 line-clamp-2">
-                    {agent.description.length > 100
-                      ? agent.description.slice(0, 100) + "…"
-                      : agent.description}
-                  </div>
-                )}
-              </button>
-            );
-          })}
-      </aside>
+          <AgentForm
+            agent={editingAgent ?? undefined}
+            onSubmit={
+              isCreating
+                ? (data) => handleCreate(data as Parameters<typeof handleCreate>[0])
+                : (data) => handleUpdate(editingAgent!.slug, data)
+            }
+            onCancel={() => {
+              setIsCreating(false);
+              setEditingAgent(null);
+            }}
+          />
+        </div>
+      )}
 
-      {/* Editor Panel */}
-      <main className="flex-1 overflow-y-auto bg-surface-2 p-6">
-        {!selectedAgent ? (
-          <div className="text-muted text-sm">Select an agent to edit.</div>
-        ) : (
-          <div className="max-w-3xl space-y-6">
-            {/* Header */}
-            <div>
-              <h1 className="text-2xl font-bold text-text-primary">
-                {selectedAgent.displayName}
-              </h1>
-              <p className="text-sm text-muted mt-1">{selectedAgent.name}</p>
-            </div>
+      {/* Loading */}
+      {loading && (
+        <div className="flex items-center justify-center p-12 text-muted">
+          <Loader2 className="w-6 h-6 animate-spin" />
+        </div>
+      )}
 
-            {/* Metadata */}
-            <section className="space-y-4">
-              <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">
-                Metadata
-              </h3>
-              <div>
-                <label htmlFor="displayName" className="block text-sm text-text-secondary mb-1">
-                  Display Name
-                </label>
-                <input
-                  id="displayName"
-                  type="text"
-                  value={form.displayName}
-                  onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
-                  className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-accent"
-                />
-              </div>
-              <div>
-                <label htmlFor="description" className="block text-sm text-text-secondary mb-1">
-                  Description
-                </label>
-                <input
-                  id="description"
-                  type="text"
-                  value={form.description}
-                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                  className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-accent"
-                />
-              </div>
-            </section>
-
-            {/* Tools */}
-            <section className="space-y-3">
-              <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">
-                Tools
-              </h3>
-              <div className="flex flex-wrap gap-4">
-                {AVAILABLE_TOOLS.map((tool) => (
-                  <label
-                    key={tool}
-                    className="flex items-center gap-2 text-sm text-text-primary cursor-pointer"
+      {/* Agents table */}
+      {!loading && !showForm && (
+        <div className="border border-border rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-surface-2 border-b border-border">
+                <th className="text-left px-4 py-3 text-text-secondary font-medium">Slug</th>
+                <th className="text-left px-4 py-3 text-text-secondary font-medium">Display Name</th>
+                <th className="text-left px-4 py-3 text-text-secondary font-medium">Next Agent</th>
+                <th className="text-right px-4 py-3 text-text-secondary font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {agents.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-4 py-8 text-center text-muted">
+                    No agents configured yet.
+                  </td>
+                </tr>
+              ) : (
+                agents.map((agent) => (
+                  <tr
+                    key={agent.slug}
+                    className="border-b border-border last:border-b-0 hover:bg-surface-2/50 transition-colors"
                   >
-                    <input
-                      type="checkbox"
-                      checked={form.tools.includes(tool)}
-                      onChange={() => toggleTool(tool)}
-                      className="rounded border-border accent-accent"
-                    />
-                    <span className="font-mono">{tool}</span>
-                  </label>
-                ))}
-              </div>
-            </section>
-
-            {/* System Prompt */}
-            <section className="space-y-3">
-              <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">
-                System Prompt
-              </h3>
-              <textarea
-                value={form.prompt}
-                onChange={(e) => setForm((f) => ({ ...f, prompt: e.target.value }))}
-                rows={12}
-                className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary font-mono focus:outline-none focus:ring-1 focus:ring-accent resize-y"
-              />
-            </section>
-
-            {/* Save */}
-            <div className="flex items-center gap-4">
-              <button
-                onClick={handleSave}
-                disabled={!isDirty || saving}
-                className="flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-opacity disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90"
-              >
-                {saving ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Save className="w-4 h-4" />
-                )}
-                {saving ? "Saving…" : "Save"}
-              </button>
-              {saveMsg && (
-                <span
-                  className={`text-sm ${
-                    saveMsg.type === "success" ? "text-green-400" : "text-red-400"
-                  }`}
-                >
-                  {saveMsg.text}
-                </span>
+                    <td className="px-4 py-3 text-text-primary font-mono text-xs">
+                      {agent.slug}
+                    </td>
+                    <td className="px-4 py-3 text-text-primary">
+                      <div className="flex items-center gap-2">
+                        {agent.iconColor && (
+                          <span
+                            className="w-2 h-2 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: agent.iconColor }}
+                          />
+                        )}
+                        {agent.displayName}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-text-secondary font-mono text-xs">
+                      {agent.nextAgent ?? "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => setEditingAgent(agent)}
+                          className="p-1.5 rounded-md text-text-secondary hover:text-accent hover:bg-accent/10 transition-colors"
+                          title="Edit"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(agent.slug)}
+                          className="p-1.5 rounded-md text-text-secondary hover:text-red-400 hover:bg-red-400/10 transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
               )}
-            </div>
-          </div>
-        )}
-      </main>
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

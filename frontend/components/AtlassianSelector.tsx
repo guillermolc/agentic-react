@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { FileText, Check, Loader2, X, Download, Search } from "lucide-react";
+import { FileText, Check, Loader2, X, Download, Search, Trash2, Eye, ChevronLeft } from "lucide-react";
 
 interface AtlassianStatus {
   jira: boolean;
@@ -21,6 +21,13 @@ interface AtlassianSelectorProps {
   disabled?: boolean;
 }
 
+interface DocumentMeta {
+  filename: string;
+  type: "jira" | "confluence";
+  size: number;
+  downloadedAt: string;
+}
+
 export function AtlassianSelector({ disabled }: AtlassianSelectorProps) {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<AtlassianStatus | null>(null);
@@ -33,6 +40,15 @@ export function AtlassianSelector({ disabled }: AtlassianSelectorProps) {
   const [downloading, setDownloading] = useState(false);
   const [docCount, setDocCount] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Documents panel state
+  const [view, setView] = useState<"search" | "docs" | "preview">("search");
+  const [docs, setDocs] = useState<DocumentMeta[]>([]);
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [previewContent, setPreviewContent] = useState<string>("");
+  const [previewFilename, setPreviewFilename] = useState<string>("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [deletingFile, setDeletingFile] = useState<string | null>(null);
 
   // Fetch status on first open
   const fetchStatus = useCallback(async () => {
@@ -59,11 +75,61 @@ export function AtlassianSelector({ disabled }: AtlassianSelectorProps) {
     try {
       const res = await fetch("/api/backend/atlassian/documents");
       if (res.ok) {
-        const docs = (await res.json()) as unknown[];
-        setDocCount(docs.length);
+        const data = (await res.json()) as DocumentMeta[];
+        setDocCount(data.length);
+        setDocs(data);
       }
     } catch { /* ignore */ }
   }, []);
+
+  const fetchDocs = useCallback(async () => {
+    setDocsLoading(true);
+    try {
+      const res = await fetch("/api/backend/atlassian/documents");
+      if (res.ok) {
+        const data = (await res.json()) as DocumentMeta[];
+        setDocs(data);
+        setDocCount(data.length);
+      }
+    } catch { /* ignore */ }
+    finally { setDocsLoading(false); }
+  }, []);
+
+  const handlePreview = useCallback(async (filename: string) => {
+    setPreviewFilename(filename);
+    setPreviewLoading(true);
+    setView("preview");
+    try {
+      const res = await fetch(`/api/backend/atlassian/documents/${encodeURIComponent(filename)}/content`);
+      if (res.ok) {
+        const data = (await res.json()) as { content: string };
+        setPreviewContent(data.content);
+      } else {
+        setPreviewContent("(Failed to load document)");
+      }
+    } catch {
+      setPreviewContent("(Failed to load document)");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, []);
+
+  const handleDeleteDoc = useCallback(async (filename: string) => {
+    setDeletingFile(filename);
+    try {
+      const res = await fetch(`/api/backend/atlassian/documents/${encodeURIComponent(filename)}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        setDocs((prev) => prev.filter((d) => d.filename !== filename));
+        setDocCount((prev) => prev - 1);
+        if (view === "preview" && previewFilename === filename) {
+          setView("docs");
+        }
+      }
+    } catch { /* ignore */ }
+    finally { setDeletingFile(null); }
+  }, [view, previewFilename]);
 
   useEffect(() => {
     fetchDocCount();
@@ -74,6 +140,7 @@ export function AtlassianSelector({ disabled }: AtlassianSelectorProps) {
     const next = !open;
     setOpen(next);
     if (next) {
+      setView("search");
       fetchStatus();
       fetchDocCount();
     }
@@ -174,33 +241,37 @@ export function AtlassianSelector({ disabled }: AtlassianSelectorProps) {
 
       {open && (
         <div className="absolute bottom-full mb-2 right-0 w-80 bg-surface-2 border border-border rounded-xl shadow-lg z-50 overflow-hidden">
-          {/* Header */}
-          <div className="px-4 py-2.5 border-b border-border flex items-center justify-between">
-            <span className="text-sm font-medium text-text-primary">Jira / Confluence</span>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="text-text-secondary hover:text-text-primary transition-colors"
-            >
-              <X size={14} />
-            </button>
-          </div>
+          {/* Search view header */}
+          {view === "search" && (
+            <>
+              <div className="px-4 py-2.5 border-b border-border flex items-center justify-between">
+                <span className="text-sm font-medium text-text-primary">Jira / Confluence</span>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="text-text-secondary hover:text-text-primary transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              </div>
 
-          {statusLoading && (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 size={20} className="animate-spin text-text-secondary" />
-            </div>
+              {statusLoading && (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 size={20} className="animate-spin text-text-secondary" />
+                </div>
+              )}
+
+              {notConfigured && (
+                <div className="px-4 py-6 text-center">
+                  <p className="text-xs text-muted">
+                    Jira/Confluence not configured. Set JIRA_URL, JIRA_PAT, CONFLUENCE_URL, CONFLUENCE_PAT in backend .env
+                  </p>
+                </div>
+              )}
+            </>
           )}
 
-          {notConfigured && (
-            <div className="px-4 py-6 text-center">
-              <p className="text-xs text-muted">
-                Jira/Confluence not configured. Set JIRA_URL, JIRA_PAT, CONFLUENCE_URL, CONFLUENCE_PAT in backend .env
-              </p>
-            </div>
-          )}
-
-          {status && !notConfigured && !statusLoading && (
+          {view === "search" && status && !notConfigured && !statusLoading && (
             <>
               {/* Service Toggle */}
               <div className="flex gap-1 px-3 pt-2">
@@ -322,12 +393,122 @@ export function AtlassianSelector({ disabled }: AtlassianSelectorProps) {
 
               {/* Doc count footer */}
               {docCount > 0 && selected.size === 0 && (
-                <div className="px-4 py-2 border-t border-border">
+                <div className="px-4 py-2 border-t border-border flex items-center justify-between">
                   <span className="text-[11px] text-muted">
-                    {docCount} document{docCount !== 1 ? "s" : ""} in context folder
+                    {docCount} document{docCount !== 1 ? "s" : ""} in context
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => { setView("docs"); fetchDocs(); }}
+                    className="text-[11px] text-accent hover:underline"
+                  >
+                    View documents
+                  </button>
                 </div>
               )}
+            </>
+          )}
+
+          {/* Documents list view */}
+          {view === "docs" && (
+            <>
+              <div className="px-4 py-2.5 border-b border-border flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setView("search")}
+                  className="text-text-secondary hover:text-text-primary transition-colors"
+                >
+                  <ChevronLeft size={14} />
+                </button>
+                <span className="text-sm font-medium text-text-primary">Downloaded Documents</span>
+              </div>
+              <div className="max-h-[300px] overflow-y-auto">
+                {docsLoading && (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 size={20} className="animate-spin text-text-secondary" />
+                  </div>
+                )}
+                {!docsLoading && docs.length === 0 && (
+                  <div className="px-4 py-8 text-center">
+                    <span className="text-xs text-muted">No documents downloaded yet</span>
+                  </div>
+                )}
+                {!docsLoading && docs.map((doc) => (
+                  <div
+                    key={doc.filename}
+                    className="flex items-center gap-2 px-4 py-2 hover:bg-background transition-colors group"
+                  >
+                    <FileText size={13} className={doc.type === "jira" ? "text-blue-400" : "text-green-400"} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-text-primary truncate">{doc.filename}</p>
+                      <p className="text-[10px] text-muted">
+                        {doc.type} · {(doc.size / 1024).toFixed(1)} KB
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handlePreview(doc.filename)}
+                      className="p-1 text-muted hover:text-accent transition-colors opacity-0 group-hover:opacity-100"
+                      title="Preview"
+                    >
+                      <Eye size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteDoc(doc.filename)}
+                      disabled={deletingFile === doc.filename}
+                      className="p-1 text-muted hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50"
+                      title="Delete"
+                    >
+                      {deletingFile === doc.filename ? (
+                        <Loader2 size={13} className="animate-spin" />
+                      ) : (
+                        <Trash2 size={13} />
+                      )}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* Document preview view */}
+          {view === "preview" && (
+            <>
+              <div className="px-4 py-2.5 border-b border-border flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setView("docs")}
+                  className="text-text-secondary hover:text-text-primary transition-colors"
+                >
+                  <ChevronLeft size={14} />
+                </button>
+                <span className="text-sm font-medium text-text-primary truncate flex-1">{previewFilename}</span>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteDoc(previewFilename)}
+                  disabled={deletingFile === previewFilename}
+                  className="text-muted hover:text-red-400 transition-colors"
+                  title="Delete document"
+                >
+                  {deletingFile === previewFilename ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <Trash2 size={13} />
+                  )}
+                </button>
+              </div>
+              <div className="max-h-[350px] overflow-y-auto">
+                {previewLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 size={20} className="animate-spin text-text-secondary" />
+                  </div>
+                ) : (
+                  <pre className="px-4 py-3 text-xs text-text-secondary whitespace-pre-wrap break-words font-mono leading-relaxed">
+                    {previewContent}
+                  </pre>
+                )}
+              </div>
             </>
           )}
         </div>

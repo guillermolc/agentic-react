@@ -200,6 +200,7 @@ agentRouter.post("/run", async (req: Request, res: Response) => {
     await runWithVertex(
       { model, systemPrompt, prompt },
       res,
+      req,
     );
   }
 });

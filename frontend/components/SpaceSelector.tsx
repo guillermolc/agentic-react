@@ -63,26 +63,29 @@ export function SpaceSelector({ onSelectionChange, disabled, providerIsVertex }:
         const next = new Set(prev);
         if (next.has(key)) next.delete(key);
         else next.add(key);
-        onSelectionChange(Array.from(next));
         return next;
       });
     },
-    [onSelectionChange],
+    [],
   );
 
   const clearSelection = useCallback(() => {
     setSelected(new Set());
-    onSelectionChange([]);
-  }, [onSelectionChange]);
+  }, []);
+
+  // Notify parent after selection changes (avoids setState-during-render)
+  useEffect(() => {
+    onSelectionChange(Array.from(selected));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
 
   // Clear selection when switching to Vertex provider
   useEffect(() => {
     if (providerIsVertex) {
       setSelected(new Set());
-      onSelectionChange([]);
       setOpen(false);
     }
-  }, [providerIsVertex, onSelectionChange]);
+  }, [providerIsVertex]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {

@@ -114,30 +114,36 @@ export function ModelSelector({ onSelectionChange, disabled }: ModelSelectorProp
 
   if (loading) {
     return (
-      <div className="flex items-center gap-1.5 px-3 text-xs text-muted bg-surface-2 border border-border rounded-xl h-full">
-        <Loader2 size={12} className="animate-spin" />
-        <span>Loading…</span>
+      <div className="relative h-9">
+        <div className="flex items-center gap-1.5 px-3 text-xs text-muted bg-surface-2 border border-border rounded-xl h-9">
+          <Loader2 size={12} className="animate-spin" />
+          <span>Loading…</span>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <button
-        onClick={fetchModels}
-        className="flex items-center gap-1.5 px-3 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl hover:bg-red-500/20 transition-colors h-full"
-      >
-        <AlertCircle size={12} />
-        Retry
-      </button>
+      <div className="relative h-9">
+        <button
+          onClick={fetchModels}
+          className="flex items-center gap-1.5 px-3 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl hover:bg-red-500/20 transition-colors h-9"
+        >
+          <AlertCircle size={12} />
+          Retry
+        </button>
+      </div>
     );
   }
 
   if (providerModels.length === 0) {
     return (
-      <div className="flex items-center gap-1.5 px-3 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl h-full">
-        <AlertCircle size={12} />
-        No LLM providers
+      <div className="relative h-9">
+        <div className="flex items-center gap-1.5 px-3 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl h-9">
+          <AlertCircle size={12} />
+          No LLM providers
+        </div>
       </div>
     );
   }
@@ -147,12 +153,12 @@ export function ModelSelector({ onSelectionChange, disabled }: ModelSelectorProp
     : "Select model";
 
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef} className="relative h-9">
       <button
         type="button"
         onClick={() => !disabled && setOpen((v) => !v)}
         disabled={disabled}
-        className={`flex items-center gap-1.5 px-3 text-xs rounded-xl border transition-colors h-full ${
+        className={`flex items-center gap-1.5 px-3 text-xs rounded-xl border transition-colors h-9 ${
           selectedModel
             ? "bg-surface-2 border-border text-text-primary hover:border-accent"
             : "bg-amber-500/10 border-amber-500/20 text-amber-400"
@@ -164,7 +170,7 @@ export function ModelSelector({ onSelectionChange, disabled }: ModelSelectorProp
       </button>
 
       {open && (
-        <div className="absolute bottom-full mb-1 left-0 bg-surface-2 border border-border rounded-xl shadow-lg z-50 min-w-[200px] py-1 max-h-[280px] overflow-y-auto">
+        <div className="absolute top-full mt-1 right-0 bg-surface-2 border border-border rounded-xl shadow-lg z-50 min-w-[200px] py-1 max-h-[280px] overflow-y-auto">
           {providerModels.map((pm) => (
             <div key={pm.provider}>
               <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted font-semibold">
