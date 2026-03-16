@@ -129,7 +129,7 @@ atlassianDownloadRouter.get("/documents", (_req: Request, res: Response) => {
 
 // DELETE /api/atlassian/documents/:filename
 atlassianDownloadRouter.delete("/documents/:filename", (req: Request, res: Response) => {
-  const { filename } = req.params;
+  const filename = String(req.params.filename);
 
   // Path traversal protection
   if (!filename || filename.includes("/") || filename.includes("\\") || filename.includes("..")) {

@@ -164,7 +164,8 @@ export function ActionPanel({ title, agentSlug, prompt, repoPath, context, onClo
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
-                  a: ({ href, children, ...props }) => (
+                  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                  a: ({ href, children, ref: _ref, ...props }) => (
                     <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
                       {children}
                     </a>
